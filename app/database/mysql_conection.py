@@ -1,9 +1,9 @@
 from decouple import config
 import pymysql
 
-print(config('MYSQL_HOST'))
+#print(config('MYSQL_HOST'))
 
-def get_connect():
+def get_conection():
     try:
         return pymysql.connect(
             host=config('MYSQL_HOST'),
