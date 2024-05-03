@@ -1,4 +1,6 @@
 from flask import Blueprint, render_template, abort, request, redirect, url_for, flash, jsonify
+import uuid
+from datetime import datetime, date
 from jinja2 import TemplateNotFound
 from ..models.user import ModelUser
 from ..models.entities.Usersmodel import User
@@ -16,12 +18,33 @@ def hola():
     except TemplateNotFound:
         abort(404)
 
-@routes.route('/registro')
+@routes.route('/registro', methods=['POST'])
 def registro():
     try:
-        return render_template('newaccount.html')
+        username = request.json['dc_nombre']
+        password = request.json['dc_contrasena']
+        email = request.json['dc_correo_electronico']
+        phone = request.json['dc_telefono']
+        id = request.json['id']
+        nivel_artes_marciales = int(request.json['tb_nivel_artes_marciales_id'])
+        date = datetime.strptime(request.json['df_fecha_solicitud'], '%d/%m/%Y').strftime('%Y-%m-%d')
+        user_id = int(request.json['tb_tipo_usuario_id'])
+        status_id = int(request.json['tb_usuario_estado_id'])
+        level_id = int(request.json['tb_nivel_id'])
+        emergency_contact = int(request.json['tb_contacto_emergencia_id'])
+        user=User(id, username, password, email, phone, nivel_artes_marciales, date, user_id, status_id, level_id, emergency_contact)
+        
+        affected_rows = ModelUser.signup(user)
+        
+        if affected_rows == 1:
+            return jsonify({})
+        else:
+            return jsonify({'message': "Error al registrar"}), 500
+        # return render_template('newaccount.html')
     except TemplateNotFound:
         abort(404)
+    except Exception as ex:
+        return jsonify({'message': str(ex)}), 500
         
 @routes.route('/login', methods=['GET', 'POST'])
 def login():
