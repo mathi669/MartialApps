@@ -4,7 +4,8 @@ from app.routes import routes
 
 
 
-app = Flask(__name__)
+# app = Flask(__name__, static_url_path='/app/static', static_folder='/app/static', template_folder='templates')
+app = Flask(__name__, static_url_path='/app/static')
 
 def page_not_found(error):
     return "<h1>Not found page</h1>", 404
