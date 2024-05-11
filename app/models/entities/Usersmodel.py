@@ -4,7 +4,7 @@ from app.utils.DateFormat import DateFormat
 
 class User():
     def __init__(
-            self, id, 
+            self,
             dc_nombre=None, 
             dc_contrasena=None, 
             dc_correo_electronico=None, 
@@ -16,7 +16,6 @@ class User():
             tb_nivel_id=None,
             tb_contacto_emergencia_id=None,
             ) -> None:
-        self.id = id
         self.dc_nombre = dc_nombre
         self.dc_contrasena = dc_contrasena
         self.dc_correo_electronico = dc_correo_electronico
@@ -37,7 +36,6 @@ class User():
         if self.df_fecha_solicitud is not None:
             formatted_date = DateFormat.convert_date(self.df_fecha_solicitud)
         return {
-            'id': self.id,
             'dc_nombre': self.dc_nombre,
             'dc_contrasena': self.dc_contrasena,
             'dc_correo_electronico': self.dc_correo_electronico,

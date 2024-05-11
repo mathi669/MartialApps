@@ -49,15 +49,16 @@ class ModelUser():
             return user
         except Exception as ex:
             raise Exception(ex)
+        
     @classmethod
     def login(self, user):
         try:
             conn = get_conection()
             
             with conn.cursor() as cursor:
-                sql="""SELECT id, dc_correo_electronico, dc_contrasena, dc_nombre FROM tb_usuario
-                            WHERE dc_correo_electronico = '{}'""".format(user.dc_correo_electronico)
-                cursor.execute(sql)
+                sql = """SELECT id, dc_correo_electronico, dc_contrasena, dc_nombre FROM tb_usuario 
+                WHERE dc_contrasena = %s AND dc_correo_electronico = %s"""
+                cursor.execute(sql, (user.dc_contrasena, user.dc_correo_electronico))
                 row=cursor.fetchone()
                 if row != None:
                     user=User(row[0],row[1],User.check_password(row[2], user.password), row[3])
@@ -74,9 +75,9 @@ class ModelUser():
             conn = get_conection()
             
             with conn.cursor() as cursor:
-                sql="""INSERT INTO tb_usuario (id, dc_nombre, dc_contrasena, dc_correo_electronico, dc_telefono, tb_nivel_artes_marciales_id, df_fecha_solicitud, tb_tipo_usuario_id, tb_usuario_estado_id, tb_nivel_id, tb_contacto_emergencia_id)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
-                values = (user.id, user.dc_nombre, user.dc_contrasena, user.dc_correo_electronico, user.dc_telefono, user.tb_nivel_artes_marciales_id, user.df_fecha_solicitud, user.tb_tipo_usuario_id, user.tb_usuario_estado_id, user.tb_nivel_id, user.tb_contacto_emergencia_id)
+                sql="""INSERT INTO tb_usuario (dc_nombre, dc_contrasena, dc_correo_electronico, dc_telefono, tb_nivel_artes_marciales_id, df_fecha_solicitud, tb_tipo_usuario_id, tb_usuario_estado_id, tb_nivel_id, tb_contacto_emergencia_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+                values = (user.dc_nombre, user.dc_contrasena, user.dc_correo_electronico, user.dc_telefono, user.tb_nivel_artes_marciales_id, user.df_fecha_solicitud, user.tb_tipo_usuario_id, user.tb_usuario_estado_id, user.tb_nivel_id, user.tb_contacto_emergencia_id)
                 cursor.execute(sql, values)
                 affected_rows = cursor.rowcount
                 conn.commit()
@@ -86,3 +87,35 @@ class ModelUser():
         except Exception as ex:
             print(f'que wea pasó {ex}')
             raise Exception(ex)
+    
+    @classmethod
+    def delete_user(cls, user_id):
+        try:
+            conn = get_conection()
+            with conn.cursor() as cursor:
+                cursor.execute("DELETE FROM tb_usuario WHERE id = %s", (user_id,))
+                affected_rows = cursor.rowcount
+                conn.commit()
+            return affected_rows
+        except Exception as ex:
+            print(f'Error: {ex}')
+            raise Exception(ex)
+        finally:
+            conn.close()
+
+    @classmethod
+    def update_user(cls, user_id, new_user_data):
+        try:
+            conn = get_conection()
+            with conn.cursor() as cursor:
+                sql = """UPDATE tb_usuario SET dc_nombre = %s, dc_contrasena = %s, dc_correo_electronico = %s, dc_telefono = %s, df_fecha_solicitud = %s WHERE id = %s"""
+                values = (new_user_data['dc_nombre'], new_user_data['dc_contrasena'], new_user_data['dc_correo_electronico'], new_user_data['dc_telefono'], new_user_data['df_fecha_solicitud'], user_id)
+                cursor.execute(sql, values)
+                affected_rows = cursor.rowcount
+                conn.commit()
+            return affected_rows
+        except Exception as ex:
+            print(f'Error: {ex}')
+            raise Exception(ex)
+        finally:
+            conn.close()
