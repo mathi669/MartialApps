@@ -6,14 +6,18 @@ class AuthService():
     @classmethod
     def login_user(cls, user):
         try:
-            conn = get_conection()
-            authenticated_user = None
+            authenticated_user = False
+            conn = get_conection()  # Obtener conexión a la base de datos
+            print(user.dc_correo_electronico)
             with conn.cursor() as cursor:
-                cursor.execute('call sp_AuthUser(%s, %s)', (user.dc_correo_electronico, user.dc_contrasena))
-                row = cursor.fetchone()
-                if row != None:
-                    authenticated_user = User(int(row[0]), row[1], None, row[2])
-            conn.close()
-            return authenticated_user
+                cursor.callproc('sp_AuthUser', (user.dc_correo_electronico, user.dc_contrasena))
+                result = cursor.fetchone()
+                print(result)
+                if result[0] == 1:
+                    authenticated_user = user
         except Exception as e:
-            raise Exception(e)
+            print("Error en el método login_user:", e)
+            raise  # Vuelve a lanzar la excepción original
+        finally:
+            conn.close()  # Asegúrate de cerrar la conexión
+        return authenticated_user

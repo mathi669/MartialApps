@@ -2,11 +2,11 @@ from flask import Flask
 from config import config
 from app.routes import routes
 from app.routes.routes import routes  # Importa el blueprint routes correctamente
-
+from flask_cors import CORS
 
 
 app = Flask(__name__)
-
+CORS(app) 
 if __name__ == "__main__":
     
     app.config.from_object(config['development'])

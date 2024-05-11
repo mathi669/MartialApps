@@ -5,9 +5,9 @@ from app.utils.DateFormat import DateFormat
 class User():
     def __init__(
             self,
-            dc_nombre=None, 
-            dc_contrasena=None, 
             dc_correo_electronico=None, 
+            dc_contrasena=None, 
+            dc_nombre=None, 
             dc_telefono=None,
             tb_nivel_artes_marciales_id = None,
             df_fecha_solicitud=None,
