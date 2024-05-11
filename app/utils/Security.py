@@ -20,8 +20,8 @@ class Security():
             payload = {
                 'iat': datetime.datetime.now(tz=cls.tz),
                 'exp': datetime.datetime.now(tz=cls.tz) + datetime.timedelta(minutes=10),
-                'username': authenticated_user.username,
-                'fullname': authenticated_user.fullname,
+                'dc_correo_electronico': authenticated_user.dc_correo_electronico,
+                'dc_contrasena': authenticated_user.dc_contrasena,
                 'roles': ['Administrator', 'Editor']
             }
             return jwt.encode(payload, cls.secret, algorithm="HS256")
