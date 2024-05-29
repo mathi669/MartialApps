@@ -1,184 +1,591 @@
 from app.database.mysql_conection import get_conection
-from flask import Blueprint, request, flash, jsonify
+from flask import Blueprint, request, jsonify
 from ..models.user import ModelUser
 from ..models.entities.Usersmodel import User
-from datetime import datetime
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from datetime import datetime, timedelta, date, time
 from decouple import config
 from app.services.AuthService import AuthService
 from app.utils.Security import Security
 from ..models.schedule import ScheduleModel
-
+from flask_jwt_extended import (
+    JWTManager,
+    create_access_token,
+    jwt_required,
+    get_jwt_identity,
+)
 
 
 routes = Blueprint("routes", __name__)
 
-jwtoken=config('JWT_SECRET_KEY') 
+jwtoken = config("JWT_SECRET_KEY")
+
 jwt = JWTManager()
 
+# Configuración de la API de ImgBB
+IMG_API_KEY = config("IMG_BB_KEY")
 
-@routes.route('/register', methods=['POST'])
+
+# Función para subir imagen a ImgBB
+def upload_image_to_imgbb(base64_image):
+    url = "https://api.imgbb.com/1/upload"
+    payload = {"key": IMG_API_KEY, "image": base64_image}
+    response = request.post(url, data=payload)
+    return response
+
+
+"""access and register routes"""
+
+
+@routes.route("/register", methods=["POST"])
 def register_user():
     try:
         # Obtener datos del cuerpo de la solicitud
         data = request.get_json()
-        
+
         # Extraer datos del cuerpo de la solicitud
-        correo = data.get('dc_correo_electronico')
-        contrasena = data.get('contrasena')
-        nombre = data.get('nombre')
-        apellido = data.get('apellido')
-        telefono = data.get('telefono')
-        nivel_artes_marciales_id = data.get('nivel_artes_marciales_id')
-        tipo_usuario_id = data.get('tipo_usuario_id')
-        usuario_estado_id = data.get('usuario_estado_id')
-        nivel_id = data.get('nivel_id')
-        contacto_emergencia_id = data.get('contacto_emergencia_id')
-        es_gimnasio = data.get('es_gimnasio')
+        correo = data.get("dc_correo_electronico")
+        contrasena = data.get("dc_contrasena")
+        nombre = data.get("dc_nombre")
+        apellido = data.get("dc_apellido")
+        telefono = data.get("dc_telefono")
+        nivel_artes_marciales_id = data.get("tb_nivel_artes_marciales_id")
+        tipo_usuario_id = data.get("tb_tipo_usuario_id")
+        usuario_estado_id = data.get("tb_usuario_estado_id")
+        nivel_id = data.get("tb_nivel_artes_marciales_id")
+        contacto_emergencia_id = data.get("tb_contacto_emergencia_id")
+        es_gimnasio = data.get("es_gimnasio")
 
         # Verificar si todos los campos requeridos están presentes y no son nulos
-        required_fields = {'dc_correo_electronico', 'contrasena', 'nombre', 'apellido'}
+        required_fields = {
+            "dc_correo_electronico",
+            "dc_contrasena",
+            "dc_nombre",
+            "dc_apellido",
+        }
         missing_fields = required_fields - set(data.keys())
         if missing_fields:
-            return jsonify({'error': f'Faltan los siguientes campos: {", ".join(missing_fields)}'}), 400
+            return (
+                jsonify(
+                    {
+                        "error": f'Faltan los siguientes campos: {", ".join(missing_fields)}'
+                    }
+                ),
+                400,
+            )
 
         # Llamar al stored procedure para registrar el usuario
         conn = get_conection()
         with conn.cursor() as cursor:
-            cursor.callproc('sp_InsertarUsuario', (nombre + apellido, correo, contrasena, telefono, nivel_artes_marciales_id, tipo_usuario_id, usuario_estado_id, nivel_id, contacto_emergencia_id, es_gimnasio))
+            cursor.callproc(
+                "sp_InsertarUsuario",
+                (
+                    nombre + " " + apellido,
+                    correo,
+                    contrasena,
+                    telefono,
+                    nivel_artes_marciales_id,
+                    tipo_usuario_id,
+                    usuario_estado_id,
+                    nivel_id,
+                    contacto_emergencia_id,
+                    es_gimnasio,
+                ),
+            )
             conn.commit()
         conn.close()
 
         # Devolver respuesta exitosa
-        return jsonify({'mensaje': 'Usuario registrado correctamente'}), 200
+        return jsonify({"mensaje": "Usuario registrado correctamente"}), 200
 
     except Exception as e:
         # Devolver error en caso de excepción
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 
-@routes.route('/login', methods=['POST'])
+@routes.route("/login", methods=["POST"])
 def login():
     try:
-        if request.method == 'POST':
-            email = request.json.get('dc_correo_electronico')
+        if request.method == "POST":
+            user_type = request.json.get("user_type")
+            email = request.json.get("dc_correo_electronico")
             print("aqui esta el mail: ", email)
-            password = request.json.get('dc_contrasena')
+            password = request.json.get("dc_contrasena")
             user = User(email, password)
-            authenticated_user = AuthService.login_user(user)
-            
+            authenticated_user = AuthService.login_user(user_type, user)
+
             if authenticated_user:
                 encoded_token = Security.generate_token(authenticated_user)
-                return jsonify({'success': True, 'token': encoded_token})
+                return jsonify({"success": True, "token": encoded_token})
             else:
                 print("Error de autenticación: Usuario o contraseña incorrectos.")
-                return jsonify({'success': False, 'error': 'Usuario o contraseña incorrectos'})
+                return jsonify(
+                    {"success": False, "error": "Usuario o contraseña incorrectos"}
+                )
         else:
-            return jsonify({'error':'Método no permitido'}), 405
+            return jsonify({"error": "Método no permitido"}), 405
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 
-@routes.route('/get_users', methods=['GET'])
-# @jwt_required()
-def get_users():
+"""Gym routes"""
+
+
+@routes.route("/createGym", methods=["POST"])
+def create_gym():
     try:
-        if request.method == 'GET':
-            users = ModelUser.get_users()
-            return jsonify(users), 200
-        else:
-            return jsonify({'error':'Método no permitido'}), 405
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        data = request.get_json()
 
-@routes.route('/get_user/<int:user_id>', methods=['GET'])
-def get_user_by_id(user_id):
+        if not all(
+            [
+                data.get("dc_nombre"),
+                data.get("dc_correo_electronico"),
+                data.get("dc_telefono"),
+                data.get("dc_ubicacion"),
+                data.get("dc_horario"),
+                data.get("tb_gimnasio_estado_id"),
+                data.get("image"),
+            ]
+        ):
+            return (
+                jsonify({"error": "All fields except dc_descripcion are required"}),
+                400,
+            )
+
+        # Subir la imagen a ImgBB
+        response = upload_image_to_imgbb(data["image"])
+        if not response.ok:
+            return jsonify({"error": "Failed to upload image"}), 500
+        image_url = response.json()["data"]["url"]
+
+        # Conectar a la base de datos y llamar al procedimiento almacenado
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc(
+                "sp_InsertarGimnasio",
+                (
+                    data.get("dc_nombre"),
+                    data.get("dc_correo_electronico"),
+                    data.get("dc_telefono"),
+                    data.get("dc_ubicacion"),
+                    data.get("dc_horario"),
+                    datetime.now(),  # df_fecha_ingreso
+                    data.get("dc_descripcion"),
+                    image_url,
+                    int(data.get("tb_gimnasio_estado_id")),
+                ),
+            )
+            conn.commit()
+        conn.close()
+
+        return jsonify({"mensaje": "Gimnasio creado correctamente"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@routes.route("/updateGym/<int:gym_id>", methods=["PUT"])
+def update_gym(gym_id):
     try:
-        if request.method == 'GET':
-            user = ModelUser.get_user_by_id(user_id)
-            if user:
-                return jsonify(user), 200
-            else:
-                return jsonify({'error': 'Usuario no encontrado'}), 404
-        else:
-            return jsonify({'error': 'Método no permitido'}), 405
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        # Obtener datos del formulario
+        data = request.form
+        image = request.files.get("image")
+        image_url = data.get("dc_imagen_url")
 
-@routes.route('/delete_user/<int:user_id>', methods=['DELETE'])
-def delete_user(user_id):
+        # Si se proporciona una nueva imagen, subirla a ImgBB
+        if image:
+            response = upload_image_to_imgbb(image)
+            if not response.ok:
+                return jsonify({"error": "Failed to upload image"}), 500
+            image_url = response.json()["data"]["url"]
+
+        # Conectar a la base de datos y llamar al procedimiento almacenado
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc(
+                "sp_ActualizarGimnasio",
+                (
+                    gym_id,
+                    data.get("dc_nombre"),
+                    data.get("dc_correo_electronico"),
+                    data.get("dc_telefono"),
+                    data.get("dc_ubicacion"),
+                    data.get("dc_horario"),
+                    datetime.now(),  # df_fecha_ingreso
+                    data.get("dc_descripcion"),
+                    image_url,
+                    int(data.get("tb_gimnasio_estado_id")),
+                ),
+            )
+            conn.commit()
+        conn.close()
+
+        return jsonify({"mensaje": "Gimnasio actualizado correctamente"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@routes.route("/deleteGym/<int:gym_id>", methods=["DELETE"])
+def delete_gym(gym_id):
     try:
-        if request.method == 'DELETE':
-            # Eliminar usuario por ID
-            affected_rows = ModelUser.delete_user(user_id)
-            if affected_rows == 1:
-                return jsonify({'message': 'Usuario eliminado exitosamente'}), 200
-            else:
-                return jsonify({'error': 'Usuario no encontrado'}), 404
-        else:
-            return jsonify({'error': 'Método no permitido'}), 405
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        # Conectar a la base de datos y llamar al procedimiento almacenado
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_EliminarGimnasio", (gym_id,))
+            conn.commit()
+        conn.close()
 
-@routes.route('/update_user/<int:user_id>', methods=['PUT'])
-def update_user(user_id):
+        return jsonify({"mensaje": "Gimnasio eliminado correctamente"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@routes.route("/gym/<int:gym_id>", methods=["GET"])
+def get_gym(gym_id):
     try:
-        if request.method == 'PUT':
-            # Obtener datos del cuerpo de la solicitud
-            new_user_data = request.json
-            
-            # Actualizar usuario por ID
-            affected_rows = ModelUser.update_user(user_id, new_user_data)
-            if affected_rows == 1:
-                return jsonify({'message': 'Usuario actualizado exitosamente'}), 200
-            else:
-                return jsonify({'error': 'Usuario no encontrado'}), 404
-        else:
-            return jsonify({'error': 'Método no permitido'}), 405
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    
+        # Conectar a la base de datos y llamar al procedimiento almacenado
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_ObtenerGimnasio", (gym_id,))
+            result = cursor.fetchone()
+        conn.close()
 
-### schedule router
-@routes.route('/get_schedule', methods=['GET'])
-def get_schedule():
-    try:
-        if request.method == 'GET':
-            schedule = ScheduleModel.get_schedule()
-            return jsonify(schedule), 200
+        if result:
+            return jsonify(result), 200
         else:
-            return jsonify({'error':'Método no permitido'}), 405
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    
+            return jsonify({"error": "Gimnasio no encontrado"}), 404
 
-    # seccion de endpoints de gimnasio 
-@routes.route('/gimnasios', methods=['GET'])
-def get_all_gimnasios():
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@routes.route("/gyms", methods=["GET"])
+def get_all_gyms():
     try:
         conn = get_conection()  # Obtener conexión a la base de datos
         with conn.cursor() as cursor:
-            cursor.callproc('sp_GetAllGimnasios')
-            result = cursor.fetchall()  # Obtener todos los registros devueltos por el procedimiento almacenado
+            cursor.callproc("sp_GetAllGimnasios")
+            result = (
+                cursor.fetchall()
+            )  # Obtener todos los registros devueltos por el procedimiento almacenado
         conn.close()  # Cerrar la conexión
 
         # Formatear los resultados como una lista de diccionarios
         gimnasios = []
         for row in result:
             gimnasio = {
-                'id': row[0],
-                'nombre': row[1],
-                'correo_electronico': row[2],
-                'telefono': row[3],
-                'ubicacion': row[4],
-                'horario': row[5],
-                'fecha_ingreso': row[6].strftime('%Y-%m-%d'),  # Convertir fecha a formato ISO
-                'descripcion': row[7],
-                'imagen_url': row[8],
-                'estado_id': row[9]
+                "id": row[0],
+                "nombre": row[1],
+                "correo_electronico": row[2],
+                "telefono": row[3],
+                "ubicacion": row[4],
+                "horario": row[5],
+                "fecha_ingreso": row[6].strftime(
+                    "%Y-%m-%d"
+                ),  # Convertir fecha a formato ISO
+                "descripcion": row[7],
+                "imagen_url": row[8],
+                "estado_id": row[9],
             }
             gimnasios.append(gimnasio)
 
-        return jsonify({'gimnasios': gimnasios}), 200  # Devolver la lista de gimnasios como JSON
+        return (
+            jsonify({"gimnasios": gimnasios}),
+            200,
+        )  # Devolver la lista de gimnasios como JSON
     except Exception as e:
-        return jsonify({'error': str(e)}), 500  # Devolver un error 500 en caso de excepción
+        return (
+            jsonify({"error": str(e)}),
+            500,
+        )  # Devolver un error 500 en caso de excepción
+
+
+"""User routes"""
+
+
+@routes.route("/get_users", methods=["GET"])
+# @jwt_required()
+def get_users():
+    try:
+        if request.method == "GET":
+            users = ModelUser.get_users()
+            return jsonify(users), 200
+        else:
+            return jsonify({"error": "Método no permitido"}), 405
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@routes.route("/get_user/<int:user_id>", methods=["GET"])
+def get_user_by_id(user_id):
+    try:
+        if request.method == "GET":
+            user = ModelUser.get_user_by_id(user_id)
+            if user:
+                return jsonify(user), 200
+            else:
+                return jsonify({"error": "Usuario no encontrado"}), 404
+        else:
+            return jsonify({"error": "Método no permitido"}), 405
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@routes.route("/delete_user/<int:user_id>", methods=["DELETE"])
+def delete_user(user_id):
+    try:
+        if request.method == "DELETE":
+            # Eliminar usuario por ID
+            affected_rows = ModelUser.delete_user(user_id)
+            if affected_rows == 1:
+                return jsonify({"message": "Usuario eliminado exitosamente"}), 200
+            else:
+                return jsonify({"error": "Usuario no encontrado"}), 404
+        else:
+            return jsonify({"error": "Método no permitido"}), 405
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@routes.route("/update_user/<int:user_id>", methods=["PUT"])
+def update_user(user_id):
+    try:
+        if request.method == "PUT":
+            # Obtener datos del cuerpo de la solicitud
+            new_user_data = request.json
+
+            # Actualizar usuario por ID
+            affected_rows = ModelUser.update_user(user_id, new_user_data)
+            if affected_rows == 1:
+                return jsonify({"message": "Usuario actualizado exitosamente"}), 200
+            else:
+                return jsonify({"error": "Usuario no encontrado"}), 404
+        else:
+            return jsonify({"error": "Método no permitido"}), 405
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+"""schedule routes"""
+
+
+@routes.route("/get_schedule", methods=["GET"])
+def get_schedule():
+    try:
+        if request.method == "GET":
+            schedule = ScheduleModel.get_schedule()
+            return jsonify(schedule), 200
+        else:
+            return jsonify({"error": "Método no permitido"}), 405
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+"""levels routes"""
+
+
+# Endpoint para obtener todos los niveles
+@routes.route("/niveles", methods=["GET"])
+def get_all_niveles():
+    try:
+        conn = get_conection()  # Obtener conexión a la base de datos
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_ObtenerNiveles")
+            result = (
+                cursor.fetchall()
+            )  # Obtener todos los registros devueltos por el procedimiento almacenado
+
+        # Formatear los resultados como una lista de diccionarios
+        niveles = []
+        for row in result:
+            nivel = {"id": row[0], "dc_nivel": row[1]}
+            niveles.append(nivel)
+
+        conn.close()  # Cerrar la conexión
+
+        return (
+            jsonify({"niveles": niveles}),
+            200,
+        )  # Devolver la lista de niveles como JSON
+
+    except Exception as e:
+        return (
+            jsonify({"error": str(e)}),
+            500,
+        )  # Devolver un error 500 en caso de excepción
+
+
+"""lessons routes"""
+
+
+def convert_timedelta_to_string(data):
+    converted_data = []
+    for item in data:
+        converted_item = []
+        for value in item:
+            if isinstance(value, timedelta):
+                converted_item.append(str(value))
+            elif isinstance(value, datetime):
+                converted_item.append(value.strftime("%Y-%m-%d %H:%M:%S"))
+            elif isinstance(value, date):
+                converted_item.append(value.strftime("%Y-%m-%d"))
+            elif isinstance(value, time):
+                converted_item.append(value.strftime("%H:%M:%S"))
+            else:
+                converted_item.append(value)
+        converted_data.append(converted_item)
+    return converted_data
+
+
+@routes.route("/classes/<int:gym_id>", methods=["GET"])
+def get_classes_by_gym(gym_id):
+    try:
+        conn = get_conection()  # Obtener conexión a la base de datos
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_obtenerClase", (gym_id,))
+            result = cursor.fetchall()  # Obtener todos los registros devueltos por el procedimiento almacenado
+        conn.close()  # Cerrar la conexión
+
+        result = convert_timedelta_to_string(result)
+
+        # Convertir resultado a una lista de diccionarios para JSON
+        columns = [
+            "id",
+            "dc_nombre_clase",
+            "dc_horario",
+            "nb_cupos_disponibles",
+            "id_categoria",
+            "df_fecha",
+            "df_hora",
+            "tb_clase_estado_id",
+            "tb_gimnasio_id",
+            "tb_arte_marcial_id",
+            "tb_profesor_id",
+            "dc_imagen_url",
+        ]
+        json_result = [dict(zip(columns, row)) for row in result]
+
+        return jsonify(json_result), 200  # Devolver la lista de clases como JSON
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500  # Devolver un error 500 en caso de excepción
+    
+@routes.route("/create_class", methods=["POST"])
+def create_class():
+    try:
+        data = request.get_json()
+
+        # Validar datos requeridos
+        required_fields = {
+            "dc_nombre_clase",
+            "dc_horario",
+            "nb_cupos_disponibles",
+            "df_fecha",
+            "df_hora",
+            "tb_clase_estado_id",
+            "tb_gimnasio_id",
+            "tb_arte_marcial_id",
+            "tb_profesor_id",
+            "dc_imagen_url",
+        }
+        missing_fields = required_fields - set(data.keys())
+        if missing_fields:
+            return jsonify({"error": f"Faltan los siguientes campos: {', '.join(missing_fields)}"}), 400
+
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_InsertarClase", (
+                data["dc_nombre_clase"],
+                data["dc_horario"],
+                data["nb_cupos_disponibles"],
+                data["id_categoria"],
+                data["df_fecha"],
+                data["df_hora"],
+                data["tb_clase_estado_id"],
+                data["tb_gimnasio_id"],
+                data["tb_arte_marcial_id"],
+                data["tb_profesor_id"],
+                data["dc_imagen_url"],
+            ))
+            conn.commit()
+        conn.close()
+
+        return jsonify({"mensaje": "Clase creada correctamente"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@routes.route("/get_classes", methods=["GET"])
+def get_classes():
+    try:
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_GetAllClases")
+            result = cursor.fetchall()
+        conn.close()
+
+        result = convert_timedelta_to_string(result)
+
+        columns = [
+            "id",
+            "dc_nombre_clase",
+            "dc_horario",
+            "nb_cupos_disponibles",
+            "id_categoria",
+            "df_fecha",
+            "df_hora",
+            "tb_clase_estado_id",
+            "tb_gimnasio_id",
+            "tb_arte_marcial_id",
+            "tb_profesor_id",
+            "dc_imagen_url",
+        ]
+        json_result = [dict(zip(columns, row)) for row in result]
+
+        return jsonify(json_result), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@routes.route("/update_class/<int:class_id>", methods=["PUT"])
+def update_class(class_id):
+    try:
+        data = request.get_json()
+
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_ActualizarClase", (
+                class_id,
+                data["dc_nombre_clase"],
+                data["dc_horario"],
+                data["nb_cupos_disponibles"],
+                data["id_categoria"],
+                data["df_fecha"],
+                data["df_hora"],
+                data["tb_clase_estado_id"],
+                data["tb_gimnasio_id"],
+                data["tb_arte_marcial_id"],
+                data["tb_profesor_id"],
+                data["dc_imagen_url"],
+            ))
+            conn.commit()
+        conn.close()
+
+        return jsonify({"mensaje": "Clase actualizada correctamente"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@routes.route("/delete_class/<int:class_id>", methods=["DELETE"])
+def delete_class(class_id):
+    try:
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_EliminarClase", (class_id,))
+            conn.commit()
+        conn.close()
+
+        return jsonify({"mensaje": "Clase eliminada correctamente"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
