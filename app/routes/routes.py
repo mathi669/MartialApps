@@ -106,11 +106,12 @@ def register_user():
 def login():
     try:
         if request.method == "POST":
+            user_type = request.json.get("user_type")
             email = request.json.get("dc_correo_electronico")
             print("aqui esta el mail: ", email)
             password = request.json.get("dc_contrasena")
             user = User(email, password)
-            authenticated_user = AuthService.login_user(user)
+            authenticated_user = AuthService.login_user(user_type, user)
 
             if authenticated_user:
                 encoded_token = Security.generate_token(authenticated_user)
@@ -468,3 +469,123 @@ def get_classes_by_gym(gym_id):
         return jsonify(json_result), 200  # Devolver la lista de clases como JSON
     except Exception as e:
         return jsonify({"error": str(e)}), 500  # Devolver un error 500 en caso de excepción
+    
+@routes.route("/create_class", methods=["POST"])
+def create_class():
+    try:
+        data = request.get_json()
+
+        # Validar datos requeridos
+        required_fields = {
+            "dc_nombre_clase",
+            "dc_horario",
+            "nb_cupos_disponibles",
+            "df_fecha",
+            "df_hora",
+            "tb_clase_estado_id",
+            "tb_gimnasio_id",
+            "tb_arte_marcial_id",
+            "tb_profesor_id",
+            "dc_imagen_url",
+        }
+        missing_fields = required_fields - set(data.keys())
+        if missing_fields:
+            return jsonify({"error": f"Faltan los siguientes campos: {', '.join(missing_fields)}"}), 400
+
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_InsertarClase", (
+                data["dc_nombre_clase"],
+                data["dc_horario"],
+                data["nb_cupos_disponibles"],
+                data["id_categoria"],
+                data["df_fecha"],
+                data["df_hora"],
+                data["tb_clase_estado_id"],
+                data["tb_gimnasio_id"],
+                data["tb_arte_marcial_id"],
+                data["tb_profesor_id"],
+                data["dc_imagen_url"],
+            ))
+            conn.commit()
+        conn.close()
+
+        return jsonify({"mensaje": "Clase creada correctamente"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@routes.route("/get_classes", methods=["GET"])
+def get_classes():
+    try:
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_GetAllClases")
+            result = cursor.fetchall()
+        conn.close()
+
+        result = convert_timedelta_to_string(result)
+
+        columns = [
+            "id",
+            "dc_nombre_clase",
+            "dc_horario",
+            "nb_cupos_disponibles",
+            "id_categoria",
+            "df_fecha",
+            "df_hora",
+            "tb_clase_estado_id",
+            "tb_gimnasio_id",
+            "tb_arte_marcial_id",
+            "tb_profesor_id",
+            "dc_imagen_url",
+        ]
+        json_result = [dict(zip(columns, row)) for row in result]
+
+        return jsonify(json_result), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@routes.route("/update_class/<int:class_id>", methods=["PUT"])
+def update_class(class_id):
+    try:
+        data = request.get_json()
+
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_ActualizarClase", (
+                class_id,
+                data["dc_nombre_clase"],
+                data["dc_horario"],
+                data["nb_cupos_disponibles"],
+                data["id_categoria"],
+                data["df_fecha"],
+                data["df_hora"],
+                data["tb_clase_estado_id"],
+                data["tb_gimnasio_id"],
+                data["tb_arte_marcial_id"],
+                data["tb_profesor_id"],
+                data["dc_imagen_url"],
+            ))
+            conn.commit()
+        conn.close()
+
+        return jsonify({"mensaje": "Clase actualizada correctamente"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@routes.route("/delete_class/<int:class_id>", methods=["DELETE"])
+def delete_class(class_id):
+    try:
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_EliminarClase", (class_id,))
+            conn.commit()
+        conn.close()
+
+        return jsonify({"mensaje": "Clase eliminada correctamente"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
