@@ -1,5 +1,5 @@
 from app.database.mysql_conection import get_conection
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, session
 from ..models.user import ModelUser
 from ..models.entities.Usersmodel import User
 from datetime import datetime, timedelta, date, time
@@ -125,6 +125,15 @@ def login():
             return jsonify({"error": "Método no permitido"}), 405
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+@routes.route("/logout", methods=["POST"])
+def logout():
+    try:
+        # Elimina la información de la sesión
+        session.clear()
+        return jsonify({"success": True, "message": "Sesión cerrada exitosamente"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 """Gym routes"""
