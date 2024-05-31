@@ -7,7 +7,6 @@ class AuthService:
     @classmethod
     def login_user(cls, user_type, user):
         try:
-            authenticated_user = False
             conn = get_conection() 
             print(user.dc_correo_electronico)
             with conn.cursor() as cursor:
