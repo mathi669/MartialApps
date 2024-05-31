@@ -6,9 +6,9 @@ from flask_cors import CORS
 
 
 app = Flask(__name__)
-CORS(app) 
+CORS(app, resources={r"/*": {"origins": "*"}}) 
 if __name__ == "__main__":
     
     app.config.from_object(config['development'])
     app.register_blueprint(routes, url_prefix='/')
-    app.run(debug=True, host='0.0.0.0', port=5000, threaded=True)
+    app.run(debug=True, host='0.0.0.0', port=8000, threaded=True)
