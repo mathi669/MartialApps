@@ -534,8 +534,8 @@ def create_class():
 def get_additional_info():
     conn = get_conection()
     
-    if not session.get('logged_in'):
-        return jsonify(error="User not authenticated"), 401
+    # if not session.get('logged_in'):
+    #     return jsonify(error="User not authenticated"), 401
 
     user_id = session.get('user_id')
 
