@@ -13,6 +13,7 @@ from flask_jwt_extended import (
     jwt_required,
     get_jwt_identity,
 )
+import mysql.connector
 
 
 routes = Blueprint("routes", __name__)
@@ -481,6 +482,8 @@ def get_classes_by_gym(gym_id):
     
 @routes.route("/create_class", methods=["POST"])
 def create_class():
+    conn = None
+    cursor = None
     try:
         data = request.get_json()
 
@@ -491,38 +494,79 @@ def create_class():
             "nb_cupos_disponibles",
             "df_fecha",
             "df_hora",
-            "tb_clase_estado_id",
-            "tb_gimnasio_id",
-            "tb_arte_marcial_id",
-            "tb_profesor_id",
-            "dc_imagen_url",
         }
         missing_fields = required_fields - set(data.keys())
         if missing_fields:
             return jsonify({"error": f"Faltan los siguientes campos: {', '.join(missing_fields)}"}), 400
 
         conn = get_conection()
+        cursor = conn.cursor()
+        cursor.callproc("sp_InsertarClase", (
+            data["dc_nombre_clase"],
+            data["dc_horario"],
+            data["nb_cupos_disponibles"],
+            data["id_categoria"],
+            data["df_fecha"],
+            data["df_hora"],
+            data["tb_clase_estado_id"],
+            data["tb_gimnasio_id"],
+            data["tb_arte_marcial_id"],
+            data["tb_profesor_id"],
+            data["dc_imagen_url"],
+        ))
+        conn.commit()
+        result = cursor.fetchall()
+        
+        if result and result[0]['success']:
+            return jsonify({'message': 'Clase creada exitosamente!', 'class': result[0]}), 200
+        else:
+            return jsonify({'error': 'No se pudo crear la clase.'}), 400
+
+    except mysql.connector.Error as err:
+        return jsonify({'error': str(err)}), 400
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+        
+@routes.route('/getAdditionalInfo', methods=['GET'])
+def get_additional_info():
+    conn = get_conection()
+    
+    if not session.get('logged_in'):
+        return jsonify(error="User not authenticated"), 401
+
+    user_id = session.get('user_id')
+
+    try:
         with conn.cursor() as cursor:
-            cursor.callproc("sp_InsertarClase", (
-                data["dc_nombre_clase"],
-                data["dc_horario"],
-                data["nb_cupos_disponibles"],
-                data["id_categoria"],
-                data["df_fecha"],
-                data["df_hora"],
-                data["tb_clase_estado_id"],
-                data["tb_gimnasio_id"],
-                data["tb_arte_marcial_id"],
-                data["tb_profesor_id"],
-                data["dc_imagen_url"],
-            ))
-            conn.commit()
-        conn.close()
 
-        return jsonify({"mensaje": "Clase creada correctamente"}), 200
+            cursor.execute("SELECT id FROM tb_clase_estado LIMIT 1")
+            clase_estado = cursor.fetchone()
 
+            cursor.execute("SELECT id FROM tb_gimnasio WHERE id = %s LIMIT 1", (user_id,))
+            gimnasio = cursor.fetchone()
+
+            cursor.execute("SELECT id FROM tb_arte_marcial LIMIT 1")
+            arte_marcial = cursor.fetchone()
+
+            cursor.execute("SELECT id FROM tb_profesor WHERE id = %s LIMIT 1", (user_id,))
+            profesor = cursor.fetchone()
+
+            if not ( clase_estado and gimnasio and arte_marcial and profesor):
+                return jsonify(error="Required information not found"), 404
+
+            additional_info = {
+                "clase_estado_id": clase_estado['id'],
+                "gimnasio_id": gimnasio['id'],
+                "arte_marcial_id": arte_marcial['id'],
+                "profesor_id": profesor['id']
+            }
+
+            return jsonify(additional_info=additional_info)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify(error=str(e)), 500
 
 @routes.route("/get_classes", methods=["GET"])
 def get_classes():
