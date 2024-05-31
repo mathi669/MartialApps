@@ -1,0 +1,311 @@
+{
+	"info": {
+		"_postman_id": "2ef5defd-8351-4025-9fa4-27bfb5977db6",
+		"name": "MartialAppsCollection",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "21763975"
+	},
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "Register User",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"dc_correo_electronico\": \"test@example.com\",\n    \"dc_contrasena\": \"password\",\n    \"dc_nombre\": \"John\",\n    \"dc_apellido\": \"Doe\",\n    \"dc_telefono\": \"1234567890\",\n    \"tb_nivel_artes_marciales_id\": 1,\n    \"tb_tipo_usuario_id\": 1,\n    \"tb_usuario_estado_id\": 1,\n    \"tb_contacto_emergencia_id\": 1,\n    \"es_gimnasio\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/register",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"register"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Login",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"dc_correo_electronico\": \"test@example.com\",\n    \"dc_contrasena\": \"password\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"login"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Gym",
+			"item": [
+				{
+					"name": "Create Gym",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"dc_nombre\": \"Gym Name\",\n    \"dc_correo_electronico\": \"gym@example.com\",\n    \"dc_telefono\": \"1234567890\",\n    \"dc_ubicacion\": \"Location\",\n    \"dc_horario\": \"8 AM - 8 PM\",\n    \"tb_gimnasio_estado_id\": 1,\n    \"image\": \"base64-image-string\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/createGym",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"createGym"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Gym",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"dc_nombre\": \"Updated Gym Name\",\n    \"dc_correo_electronico\": \"updatedgym@example.com\",\n    \"dc_telefono\": \"0987654321\",\n    \"dc_ubicacion\": \"New Location\",\n    \"dc_horario\": \"9 AM - 9 PM\",\n    \"tb_gimnasio_estado_id\": 2,\n    \"image\": \"base64-updated-image-string\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/updateGym/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"updateGym",
+								"1"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Gym",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/deleteGym/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"deleteGym",
+								"1"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Gym",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/gym/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"gym",
+								"1"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Gyms",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/gyms",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"gyms"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "User",
+			"item": [
+				{
+					"name": "Get Users",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/get_users",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_users"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get User by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/get_user/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_user",
+								"1"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete User",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/delete_user/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"delete_user",
+								"1"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update User",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"dc_nombre\": \"Updated User Name\",\n    \"dc_apellido\": \"Updated Last Name\",\n    \"dc_correo_electronico\": \"updateduser@example.com\",\n    \"dc_telefono\": \"0987654321\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/update_user/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"update_user",
+								"1"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Schedule",
+			"item": [
+				{
+					"name": "Get Schedule",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/get_schedule",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_schedule"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Levels",
+			"item": [
+				{
+					"name": "Get All Levels",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/niveles",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"niveles"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Lessons",
+			"item": [
+				{
+					"name": "Get Classes by Gym",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/classes/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"classes",
+								"1"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://127.0.0.1:5000"
+		}
+	]
+}
