@@ -5,17 +5,20 @@ from app.models.user import User
 class AuthService:
 
     @classmethod
-    def login_user(cls, user):
+    def login_user(cls, user_type, user):
         try:
-            conn = get_conection()  # Obtener conexión a la base de datos
+            authenticated_user = False
+            conn = get_conection() 
             print(user.dc_correo_electronico)
             with conn.cursor() as cursor:
-                cursor.callproc(
-                    "sp_AuthUser", (user.dc_correo_electronico, user.dc_contrasena)
-                )
+                if user_type == 'usuario':
+                    cursor.callproc('sp_AuthUser', (user.dc_correo_electronico, user.dc_contrasena))
+                elif user_type == 'gimnasio':
+                    cursor.callproc('sp_AuthGym', (user.dc_correo_electronico, user.dc_contrasena))
+                    
+                
                 result = cursor.fetchone()
                 print(result)
-
                 if (
                     result and result[0]
                 ):  # Verificar si el primer elemento indica si el usuario existe
@@ -29,4 +32,4 @@ class AuthService:
             print("Error en el método login_user:", e)
             raise  # Vuelve a lanzar la excepción original
         finally:
-            conn.close()  # Asegúrate de cerrar la conexión
+            conn.close() 
