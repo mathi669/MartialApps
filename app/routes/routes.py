@@ -109,22 +109,32 @@ def login():
         if request.method == "POST":
             user_type = request.json.get("user_type")
             email = request.json.get("dc_correo_electronico")
-            print("aqui esta el mail: ", email)
+            print("Aquí está el correo: ", email)
             password = request.json.get("dc_contrasena")
             user = User(email, password)
             authenticated_user = AuthService.login_user(user_type, user)
 
             if authenticated_user:
                 encoded_token = Security.generate_token(authenticated_user)
-                return jsonify({"success": True, "token": encoded_token})
+                return jsonify(
+                    {
+                        "success": True,
+                        "token": encoded_token,
+                        "user_id": authenticated_user.id_usuario,
+                    }
+                )
             else:
                 print("Error de autenticación: Usuario o contraseña incorrectos.")
-                return jsonify(
-                    {"success": False, "error": "Usuario o contraseña incorrectos"}
+                return (
+                    jsonify(
+                        {"success": False, "error": "Usuario o contraseña incorrectos"}
+                    ),
+                    401,
                 )
         else:
             return jsonify({"error": "Método no permitido"}), 405
     except Exception as e:
+        print("Error en el endpoint /login:", e)
         return jsonify({"error": str(e)}), 500
     
 @routes.route("/logout", methods=["POST"])
@@ -454,7 +464,9 @@ def get_classes_by_gym(gym_id):
         conn = get_conection()  # Obtener conexión a la base de datos
         with conn.cursor() as cursor:
             cursor.callproc("sp_obtenerClase", (gym_id,))
-            result = cursor.fetchall()  # Obtener todos los registros devueltos por el procedimiento almacenado
+            result = (
+                cursor.fetchall()
+            )  # Obtener todos los registros devueltos por el procedimiento almacenado
         conn.close()  # Cerrar la conexión
 
         result = convert_timedelta_to_string(result)
@@ -478,7 +490,98 @@ def get_classes_by_gym(gym_id):
 
         return jsonify(json_result), 200  # Devolver la lista de clases como JSON
     except Exception as e:
-        return jsonify({"error": str(e)}), 500  # Devolver un error 500 en caso de excepción
+        return (
+            jsonify({"error": str(e)}),
+            500,
+        )  # Devolver un error 500 en caso de excepción
+
+
+"""Configurations routes"""
+
+
+@routes.route("/change_username", methods=["PUT"])
+def change_username():
+    try:
+        data = request.get_json()
+        user_id = data.get("user_id")
+        nombre = data.get("nombre")
+
+        if not user_id or not nombre:
+            return jsonify({"error": "Missing user_id or nombre"}), 400
+
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_CambiarNombreUsuario", (user_id, nombre))
+            conn.commit()
+        conn.close()
+
+        return jsonify({"message": "Nombre de usuario cambiado correctamente"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@routes.route("/change_email", methods=["PUT"])
+def change_email():
+    try:
+        data = request.get_json()
+        user_id = data.get("user_id")
+        correo = data.get("correo")
+
+        if not user_id or not correo:
+            return jsonify({"error": "Missing user_id or correo"}), 400
+
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_CambiarCorreo", (user_id, correo))
+            conn.commit()
+        conn.close()
+
+        return jsonify({"message": "Correo electrónico cambiado correctamente"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@routes.route("/change_phone", methods=["PUT"])
+def change_phone():
+    try:
+        data = request.get_json()
+        user_id = data.get("user_id")
+        telefono = data.get("telefono")
+
+        if not user_id or not telefono:
+            return jsonify({"error": "Missing user_id or telefono"}), 400
+
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_CambiarTelefono", (user_id, telefono))
+            conn.commit()
+        conn.close()
+
+        return jsonify({"message": "Teléfono cambiado correctamente"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@routes.route("/change_password", methods=["PUT"])
+def change_password():
+    try:
+        data = request.get_json()
+        user_id = data.get("user_id")
+        contrasena = data.get("contrasena")
+
+        if not user_id or not contrasena:
+            return jsonify({"error": "Missing user_id or contrasena"}), 400
+
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_CambiarContrasena", (user_id, contrasena))
+            conn.commit()
+        conn.close()
+
+        return jsonify({"message": "Contraseña cambiada correctamente"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
     
 @routes.route("/create_class", methods=["POST"])
 def create_class():
@@ -534,8 +637,8 @@ def create_class():
 def get_additional_info():
     conn = get_conection()
     
-    if not session.get('logged_in'):
-        return jsonify(error="User not authenticated"), 401
+    # if not session.get('logged_in'):
+    #     return jsonify(error="User not authenticated"), 401
 
     user_id = session.get('user_id')
 
