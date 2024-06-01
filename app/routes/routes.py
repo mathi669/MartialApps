@@ -120,7 +120,7 @@ def login():
                     {
                         "success": True,
                         "token": encoded_token,
-                        "user_id": authenticated_user.id_usuario,
+                        **authenticated_user,
                     }
                 )
             else:
