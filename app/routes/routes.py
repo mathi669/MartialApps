@@ -111,32 +111,33 @@ def login():
             email = request.json.get("dc_correo_electronico")
             print("Aquí está el correo: ", email)
             password = request.json.get("dc_contrasena")
-            user = User(email, password)
-            authenticated_user = AuthService.login_user(user_type, user)
+            user_data = {"dc_correo_electronico": email, "dc_contrasena": password}
+            auth_response = AuthService.login_user(user_type, user_data)
 
-            if authenticated_user:
-                encoded_token = Security.generate_token(authenticated_user)
-                return jsonify(
-                    {
-                        "success": True,
-                        "token": encoded_token,
-                        **authenticated_user,
-                    }
-                )
+            if auth_response["success"]:
+                encoded_token = Security.generate_token(auth_response["user"])
+                response = {
+                    "success": True,
+                    "token": encoded_token,
+                    "user": auth_response["user"],
+                    "message": auth_response["message"],
+                }
+                return jsonify(response)
             else:
                 print("Error de autenticación: Usuario o contraseña incorrectos.")
-                return (
-                    jsonify(
-                        {"success": False, "error": "Usuario o contraseña incorrectos"}
-                    ),
-                    401,
+                return jsonify(
+                    {
+                        "success": False,
+                        "message": "Usuario o contraseña incorrectos",
+                    }
                 )
         else:
-            return jsonify({"error": "Método no permitido"}), 405
+            return jsonify({"message": "Método no permitido"}), 405
     except Exception as e:
         print("Error en el endpoint /login:", e)
         return jsonify({"error": str(e)}), 500
-    
+
+
 @routes.route("/logout", methods=["POST"])
 def logout():
     try:
@@ -582,7 +583,7 @@ def change_password():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-    
+
 @routes.route("/create_class", methods=["POST"])
 def create_class():
     conn = None
@@ -600,47 +601,61 @@ def create_class():
         }
         missing_fields = required_fields - set(data.keys())
         if missing_fields:
-            return jsonify({"error": f"Faltan los siguientes campos: {', '.join(missing_fields)}"}), 400
+            return (
+                jsonify(
+                    {
+                        "error": f"Faltan los siguientes campos: {', '.join(missing_fields)}"
+                    }
+                ),
+                400,
+            )
 
         conn = get_conection()
         cursor = conn.cursor()
-        cursor.callproc("sp_InsertarClase", (
-            data["dc_nombre_clase"],
-            data["dc_horario"],
-            data["nb_cupos_disponibles"],
-            data["id_categoria"],
-            data["df_fecha"],
-            data["df_hora"],
-            data["tb_clase_estado_id"],
-            data["tb_gimnasio_id"],
-            data["tb_arte_marcial_id"],
-            data["tb_profesor_id"],
-            data["dc_imagen_url"],
-        ))
+        cursor.callproc(
+            "sp_InsertarClase",
+            (
+                data["dc_nombre_clase"],
+                data["dc_horario"],
+                data["nb_cupos_disponibles"],
+                data["id_categoria"],
+                data["df_fecha"],
+                data["df_hora"],
+                data["tb_clase_estado_id"],
+                data["tb_gimnasio_id"],
+                data["tb_arte_marcial_id"],
+                data["tb_profesor_id"],
+                data["dc_imagen_url"],
+            ),
+        )
         conn.commit()
         result = cursor.fetchall()
-        
-        if result and result[0]['success']:
-            return jsonify({'message': 'Clase creada exitosamente!', 'class': result[0]}), 200
+
+        if result and result[0]["success"]:
+            return (
+                jsonify({"message": "Clase creada exitosamente!", "class": result[0]}),
+                200,
+            )
         else:
-            return jsonify({'error': 'No se pudo crear la clase.'}), 400
+            return jsonify({"error": "No se pudo crear la clase."}), 400
 
     except mysql.connector.Error as err:
-        return jsonify({'error': str(err)}), 400
+        return jsonify({"error": str(err)}), 400
     finally:
         if cursor:
             cursor.close()
         if conn:
             conn.close()
-        
-@routes.route('/getAdditionalInfo', methods=['GET'])
+
+
+@routes.route("/getAdditionalInfo", methods=["GET"])
 def get_additional_info():
     conn = get_conection()
-    
-    # if not session.get('logged_in'):
-    #     return jsonify(error="User not authenticated"), 401
 
-    user_id = session.get('user_id')
+    if not session.get("logged_in"):
+        return jsonify(error="User not authenticated"), 401
+
+    user_id = session.get("user_id")
 
     try:
         with conn.cursor() as cursor:
@@ -648,28 +663,33 @@ def get_additional_info():
             cursor.execute("SELECT id FROM tb_clase_estado LIMIT 1")
             clase_estado = cursor.fetchone()
 
-            cursor.execute("SELECT id FROM tb_gimnasio WHERE id = %s LIMIT 1", (user_id,))
+            cursor.execute(
+                "SELECT id FROM tb_gimnasio WHERE id = %s LIMIT 1", (user_id,)
+            )
             gimnasio = cursor.fetchone()
 
             cursor.execute("SELECT id FROM tb_arte_marcial LIMIT 1")
             arte_marcial = cursor.fetchone()
 
-            cursor.execute("SELECT id FROM tb_profesor WHERE id = %s LIMIT 1", (user_id,))
+            cursor.execute(
+                "SELECT id FROM tb_profesor WHERE id = %s LIMIT 1", (user_id,)
+            )
             profesor = cursor.fetchone()
 
-            if not ( clase_estado and gimnasio and arte_marcial and profesor):
+            if not (clase_estado and gimnasio and arte_marcial and profesor):
                 return jsonify(error="Required information not found"), 404
 
             additional_info = {
-                "clase_estado_id": clase_estado['id'],
-                "gimnasio_id": gimnasio['id'],
-                "arte_marcial_id": arte_marcial['id'],
-                "profesor_id": profesor['id']
+                "clase_estado_id": clase_estado["id"],
+                "gimnasio_id": gimnasio["id"],
+                "arte_marcial_id": arte_marcial["id"],
+                "profesor_id": profesor["id"],
             }
 
             return jsonify(additional_info=additional_info)
     except Exception as e:
         return jsonify(error=str(e)), 500
+
 
 @routes.route("/get_classes", methods=["GET"])
 def get_classes():
@@ -703,6 +723,7 @@ def get_classes():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 @routes.route("/update_class/<int:class_id>", methods=["PUT"])
 def update_class(class_id):
     try:
@@ -710,20 +731,23 @@ def update_class(class_id):
 
         conn = get_conection()
         with conn.cursor() as cursor:
-            cursor.callproc("sp_ActualizarClase", (
-                class_id,
-                data["dc_nombre_clase"],
-                data["dc_horario"],
-                data["nb_cupos_disponibles"],
-                data["id_categoria"],
-                data["df_fecha"],
-                data["df_hora"],
-                data["tb_clase_estado_id"],
-                data["tb_gimnasio_id"],
-                data["tb_arte_marcial_id"],
-                data["tb_profesor_id"],
-                data["dc_imagen_url"],
-            ))
+            cursor.callproc(
+                "sp_ActualizarClase",
+                (
+                    class_id,
+                    data["dc_nombre_clase"],
+                    data["dc_horario"],
+                    data["nb_cupos_disponibles"],
+                    data["id_categoria"],
+                    data["df_fecha"],
+                    data["df_hora"],
+                    data["tb_clase_estado_id"],
+                    data["tb_gimnasio_id"],
+                    data["tb_arte_marcial_id"],
+                    data["tb_profesor_id"],
+                    data["dc_imagen_url"],
+                ),
+            )
             conn.commit()
         conn.close()
 
@@ -731,6 +755,7 @@ def update_class(class_id):
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @routes.route("/delete_class/<int:class_id>", methods=["DELETE"])
 def delete_class(class_id):
