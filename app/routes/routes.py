@@ -112,26 +112,27 @@ def login():
             print("Aquí está el correo: ", email)
             password = request.json.get("dc_contrasena")
             user_data = {"dc_correo_electronico": email, "dc_contrasena": password}
-            authenticated_user = AuthService.login_user(user_type, user_data)
+            auth_response = AuthService.login_user(user_type, user_data)
 
-            if authenticated_user:
-                encoded_token = Security.generate_token(authenticated_user)
-                response = {"success": True, "token": encoded_token}
-                if user_type == "gimnasio":
-                    response.update(authenticated_user)
-                else:
-                    response["user_id"] = authenticated_user["id_usuario"]
+            if auth_response["success"]:
+                encoded_token = Security.generate_token(auth_response["user"])
+                response = {
+                    "success": True,
+                    "token": encoded_token,
+                    "user": auth_response["user"],
+                    "message": auth_response["message"],
+                }
                 return jsonify(response)
             else:
                 print("Error de autenticación: Usuario o contraseña incorrectos.")
-                return (
-                    jsonify(
-                        {"success": False, "error": "Usuario o contraseña incorrectos"}
-                    ),
-                    401,
+                return jsonify(
+                    {
+                        "success": False,
+                        "message": "Usuario o contraseña incorrectos",
+                    }
                 )
         else:
-            return jsonify({"error": "Método no permitido"}), 405
+            return jsonify({"message": "Método no permitido"}), 405
     except Exception as e:
         print("Error en el endpoint /login:", e)
         return jsonify({"error": str(e)}), 500
