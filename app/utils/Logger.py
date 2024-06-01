@@ -8,6 +8,10 @@ class Logger():
     def __set_logger(self):
         log_directory = 'src/utils/log'
         log_filename = 'app.log'
+        
+        # Crear el directorio de logs si no existe
+        if not os.path.exists(log_directory):
+            os.makedirs(log_directory)
 
         logger = logging.getLogger(__name__)
         logger.setLevel(logging.DEBUG)
