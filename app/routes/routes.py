@@ -1,3 +1,4 @@
+import requests
 from app.database.mysql_conection import get_conection
 from flask import Blueprint, request, jsonify, session
 from ..models.user import ModelUser
@@ -30,7 +31,8 @@ IMG_API_KEY = config("IMG_BB_KEY")
 def upload_image_to_imgbb(base64_image):
     url = "https://api.imgbb.com/1/upload"
     payload = {"key": IMG_API_KEY, "image": base64_image}
-    response = request.post(url, data=payload)
+    response = requests.post(url, data=payload)
+    print(response.text)
     return response
 
 
@@ -593,11 +595,12 @@ def create_class():
 
         # Validar datos requeridos
         required_fields = {
-            "dc_nombre_clase",
-            "dc_horario",
-            "nb_cupos_disponibles",
-            "df_fecha",
-            "df_hora",
+            "nombre_clase",
+            "horario",
+            "cupos_disponibles",
+            "fecha",
+            "hora",
+            "imagen",  # Asegúrate de incluir 'imagen' aquí
         }
         missing_fields = required_fields - set(data.keys())
         if missing_fields:
@@ -610,22 +613,28 @@ def create_class():
                 400,
             )
 
+        # Subir la imagen a ImgBB
+        response = upload_image_to_imgbb(data["imagen"])
+        if not response.ok:
+            return jsonify({"error": "Failed to upload image"}), 500
+        image_url = response.json()["data"]["url"]
+
         conn = get_conection()
         cursor = conn.cursor()
         cursor.callproc(
             "sp_InsertarClase",
             (
-                data["dc_nombre_clase"],
-                data["dc_horario"],
-                data["nb_cupos_disponibles"],
-                data["id_categoria"],
-                data["df_fecha"],
-                data["df_hora"],
-                data["tb_clase_estado_id"],
-                data["tb_gimnasio_id"],
-                data["tb_arte_marcial_id"],
-                data["tb_profesor_id"],
-                data["dc_imagen_url"],
+                data["nombre_clase"],
+                data["horario"],
+                data["cupos_disponibles"],
+                data["categoria_id"],
+                data["fecha"],
+                data["hora"],
+                data["clase_estado_id"],
+                data["gimnasio_id"],
+                data["arte_marcial_id"],
+                data["profesor_id"],
+                image_url,
             ),
         )
         conn.commit()

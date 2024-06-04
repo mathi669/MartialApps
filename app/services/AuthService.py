@@ -22,7 +22,7 @@ class AuthService:
                         "sp_AuthGym",
                         (
                             user_data["dc_correo_electronico"],
-                            user_data["dc_contrasena"],
+                            user_data["dc_contrasena"],                                                                                                                                                                                                                                                                                   
                         ),
                     )
                 result = cursor.fetchone()
