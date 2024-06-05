@@ -7,8 +7,8 @@ class AuthService:
     def login_user(cls, user_type, user_data):
         try:
             conn = get_conection()
-            print(user_data["dc_correo_electronico"])
             with conn.cursor() as cursor:
+                print(f"en una de esas aqui entro")
                 if user_type == "usuario":
                     cursor.callproc(
                         "sp_AuthUser",
@@ -22,11 +22,19 @@ class AuthService:
                         "sp_AuthGym",
                         (
                             user_data["dc_correo_electronico"],
-                            user_data["dc_contrasena"],                                                                                                                                                                                                                                                                                   
+                            user_data["dc_contrasena"],
+                        ),
+                    )
+                elif user_type == "administrador":
+                    print(f"ENTRO AL ADMIN")
+                    cursor.callproc(
+                        "sp_AuthAdmin",
+                        (
+                            user_data["dc_correo_electronico"],
+                            user_data["dc_contrasena"],
                         ),
                     )
                 result = cursor.fetchone()
-                print(result)
 
                 if (
                     result and result[0]
@@ -51,7 +59,7 @@ class AuthService:
                             "user": gimnasio_data,
                             "message": "Autenticación exitosa",
                         }
-                    else:
+                    elif user_type == "usuario":
                         user_data = {
                             "id": result[1],
                             "dc_nombre": result[2],
@@ -69,6 +77,23 @@ class AuthService:
                         return {
                             "success": True,
                             "user": user_data,
+                            "message": "Autenticación exitosa",
+                        }
+                    elif user_type == "administrador":
+                        print("entre al admin nuevamente")
+                        admin_data = {
+                            "success": result[0],
+                            "id": result[1],
+                            "nombre": result[2],
+                            "correo_electronico": result[3],
+                            "telefono": result[4],
+                            "direccion": result[5],
+                            "estado": result[6],
+                            "message": "Administrador autenticado exitosamente.",
+                        }
+                        return {
+                            "success": True,
+                            "user": admin_data,
                             "message": "Autenticación exitosa",
                         }
                 else:

@@ -15,6 +15,7 @@ from flask_jwt_extended import (
     get_jwt_identity,
 )
 import mysql.connector
+import datetime
 
 
 routes = Blueprint("routes", __name__)
@@ -38,6 +39,80 @@ def upload_image_to_imgbb(base64_image):
 
 """access and register routes"""
 
+@routes.route("/registerGym", methods=["POST"])
+def register_gym():
+    try:
+        # Obtener datos del cuerpo de la solicitud
+        data = request.get_json()
+
+        # Extraer datos del cuerpo de la solicitud
+        nombre_gimnasio = data.get("nombreGimnasio")
+        correo = data.get("correo")
+        contrasena = data.get("contrasena")
+        telefono = data.get("telefonoGimnasio")
+        ubicacion_gimnasio = data.get("ubicacionGimnasio")
+
+        # Verificar si todos los campos requeridos están presentes y no son nulos
+        required_fields = {
+            "nombreGimnasio",
+            "correo",
+            "contrasena",
+            "telefonoGimnasio",
+            "ubicacionGimnasio",
+        }
+        missing_fields = required_fields - set(data.keys())
+        if missing_fields:
+            return (
+                jsonify(
+                    {
+                        "error": f'Faltan los siguientes campos: {", ".join(missing_fields)}'
+                    }
+                ),
+                400,
+            )
+
+        # Llamar al stored procedure para registrar el gimnasio
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            # Obtener el último ID de la tabla tb_gimnasio
+            cursor.execute("SELECT MAX(id) FROM tb_gimnasio")
+            last_id = cursor.fetchone()[0]
+            
+            # Calcular el nuevo ID sumando 1 al último ID obtenido
+            new_id = last_id + 1
+            
+            # Definir el horario y la descripción predeterminados
+            horario_predeterminado = "9:00 - 16:00"
+            descripcion_predeterminada = "Aquí debe ir la descripción del gimnasio"
+            img = "Aquí debe ir la descripción del gimnasio"
+            
+            # Insertar el nuevo registro en la tabla tb_gimnasio con el nuevo ID
+            cursor.execute(
+                "INSERT INTO tb_gimnasio (id, dc_nombre, dc_correo_electronico, dc_contrasena, dc_telefono, dc_ubicacion, dc_horario, df_fecha_ingreso, dc_descripcion, dc_imagen_url) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s)",
+                (new_id, nombre_gimnasio, correo, contrasena, telefono, ubicacion_gimnasio, horario_predeterminado, descripcion_predeterminada, img),
+            )
+            conn.commit()
+
+
+            # Obtener el ID del último gimnasio registrado
+            cursor.execute("SELECT LAST_INSERT_ID()")
+            id_gimnasio = cursor.fetchone()[0]
+
+            # Llamar al stored procedure para registrar la solicitud de registro
+            cursor.callproc(
+                "sp_InsertarSolicitudRegistro",
+                (id_gimnasio, datetime.datetime.now()),
+            )
+            conn.commit()
+
+        conn.close()
+
+        # Devolver respuesta exitosa
+        return jsonify({"mensaje": "Solicitud de registro de gimnasio enviada correctamente"}), 200
+
+    except Exception as e:
+        # Devolver error en caso de excepción
+        return jsonify({"error": str(e)}), 500
 
 @routes.route("/register", methods=["POST"])
 def register_user():
@@ -114,9 +189,13 @@ def login():
             print("Aquí está el correo: ", email)
             password = request.json.get("dc_contrasena")
             user_data = {"dc_correo_electronico": email, "dc_contrasena": password}
+            print(f"Autenticando tipo de usuario: {user_type}")
+
             auth_response = AuthService.login_user(user_type, user_data)
+            print("Respuesta de autenticación:", auth_response)
 
             if auth_response["success"]:
+                print("Autenticación exitosa.")
                 encoded_token = Security.generate_token(auth_response["user"])
                 response = {
                     "success": True,
@@ -138,7 +217,6 @@ def login():
     except Exception as e:
         print("Error en el endpoint /login:", e)
         return jsonify({"error": str(e)}), 500
-
 
 @routes.route("/logout", methods=["POST"])
 def logout():
@@ -776,6 +854,22 @@ def delete_class(class_id):
         conn.close()
 
         return jsonify({"mensaje": "Clase eliminada correctamente"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@routes.route("/solicitudes_registro", methods=["GET"])
+def get_solicitudes_registro():
+    try:
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.execute("CALL sp_ObtenerSolicitudesRegistro")
+            solicitudes = cursor.fetchall()
+        conn.close()
+
+        # Convertir las solicitudes obtenidas a un formato JSON y devolverlas
+        return jsonify({"solicitudes_registro": solicitudes}), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
