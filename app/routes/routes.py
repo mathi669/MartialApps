@@ -93,15 +93,10 @@ def register_gym():
             )
             conn.commit()
 
-
-            # Obtener el ID del último gimnasio registrado
-            cursor.execute("SELECT LAST_INSERT_ID()")
-            id_gimnasio = cursor.fetchone()[0]
-
             # Llamar al stored procedure para registrar la solicitud de registro
             cursor.callproc(
                 "sp_InsertarSolicitudRegistro",
-                (id_gimnasio, datetime.datetime.now()),
+                (new_id, datetime.datetime.now()),
             )
             conn.commit()
 
@@ -871,5 +866,28 @@ def get_solicitudes_registro():
         # Convertir las solicitudes obtenidas a un formato JSON y devolverlas
         return jsonify({"solicitudes_registro": solicitudes}), 200
 
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+@routes.route('/aceptar_solicitud/<int:id_solicitud>', methods=['POST'])
+def aceptar_solicitud(id_solicitud):
+    try:
+        conn = get_conection()
+        cursor = conn.cursor()
+        cursor.callproc('sp_AceptarSolicitudRegistro', [id_solicitud])
+        conn.commit()
+        return jsonify({"mensaje": "Solicitud aceptada correctamente"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Ruta para rechazar una solicitud de registro
+@routes.route('/rechazar_solicitud/<int:id_solicitud>', methods=['POST'])
+def rechazar_solicitud(id_solicitud):
+    try:
+        conn = get_conection()
+        cursor = conn.cursor()
+        cursor.callproc('sp_RechazarSolicitudRegistro', [id_solicitud])
+        conn.commit()
+        return jsonify({"mensaje": "Solicitud rechazada correctamente"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
