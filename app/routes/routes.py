@@ -515,6 +515,8 @@ def get_all_niveles():
 """lessons routes"""
 
 
+from datetime import datetime, date, time, timedelta
+
 def convert_timedelta_to_string(data):
     converted_data = []
     for item in data:
@@ -533,27 +535,24 @@ def convert_timedelta_to_string(data):
         converted_data.append(converted_item)
     return converted_data
 
-
 @routes.route("/classes/<int:gym_id>", methods=["GET"])
 def get_classes_by_gym(gym_id):
     try:
         conn = get_conection()  # Obtener conexión a la base de datos
         with conn.cursor() as cursor:
             cursor.callproc("sp_obtenerClase", (gym_id,))
-            result = (
-                cursor.fetchall()
-            )  # Obtener todos los registros devueltos por el procedimiento almacenado
+            result = cursor.fetchall()  # Obtener todos los registros devueltos por el procedimiento almacenado
         conn.close()  # Cerrar la conexión
 
+        # Convertir timedelta a string si es necesario
         result = convert_timedelta_to_string(result)
 
-        # Convertir resultado a una lista de diccionarios para JSON
+        # Ajusta esta lista según las columnas que realmente devuelva tu procedimiento almacenado
         columns = [
             "id",
             "dc_nombre_clase",
             "dc_horario",
             "nb_cupos_disponibles",
-            "id_categoria",
             "df_fecha",
             "df_hora",
             "tb_clase_estado_id",
@@ -566,11 +565,7 @@ def get_classes_by_gym(gym_id):
 
         return jsonify(json_result), 200  # Devolver la lista de clases como JSON
     except Exception as e:
-        return (
-            jsonify({"error": str(e)}),
-            500,
-        )  # Devolver un error 500 en caso de excepción
-
+        return jsonify({"error": str(e)}), 500  # Devolver un error 500 en caso de excepción
 
 """Configurations routes"""
 
@@ -789,7 +784,6 @@ def get_classes():
             "dc_nombre_clase",
             "dc_horario",
             "nb_cupos_disponibles",
-            "id_categoria",
             "df_fecha",
             "df_hora",
             "tb_clase_estado_id",
@@ -889,5 +883,78 @@ def rechazar_solicitud(id_solicitud):
         cursor.callproc('sp_RechazarSolicitudRegistro', [id_solicitud])
         conn.commit()
         return jsonify({"mensaje": "Solicitud rechazada correctamente"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@routes.route("/reservarClase", methods=["POST"])
+def reservar_clase():
+    try:
+        data = request.get_json()
+        clase_id = data.get("clase_id")
+        gimnasio_id = data.get("gimnasio_id")
+        usuario_id = data.get("usuario_id")  # Este ID debería obtenerse del localStorage en tu aplicación
+        fecha = data.get("fecha")
+        hora = data.get("hora")
+
+        # Verificar si todos los campos requeridos están presentes y no son nulos
+        required_fields = {"clase_id", "gimnasio_id", "usuario_id", "fecha", "hora"}
+        missing_fields = required_fields - set(data.keys())
+        if missing_fields:
+            return jsonify({"ok": False, "mensaje": f'Faltan los siguientes campos: {", ".join(missing_fields)}', "solicitud": None}), 400
+
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_InsertarSolicitudReserva", (clase_id, gimnasio_id, fecha, hora, usuario_id))
+            solicitud_id = cursor.fetchone()[0]
+            conn.commit()
+
+        conn.close()
+
+        return jsonify({"ok": True, "mensaje": "Solicitud de reserva creada correctamente", "solicitud": {"id": solicitud_id, "clase_id": clase_id, "gimnasio_id": gimnasio_id, "fecha": fecha, "hora": hora, "usuario_id": usuario_id}}), 200
+
+    except Exception as e:
+        return jsonify({"ok": False, "mensaje": str(e), "solicitud": None}), 500
+
+
+
+from datetime import timedelta
+
+@routes.route("/user/reservation-requests", methods=["GET"])
+def get_reservation_requests():
+    try:
+        # Obtener el ID del usuario desde la solicitud
+        tb_usuario_id = request.args.get("tb_usuario_id")
+
+        # Llamar al stored procedure para obtener las solicitudes de reserva del usuario
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_ObtenerSolicitudesReservaUsuario", (tb_usuario_id,))
+            result = cursor.fetchall()
+        conn.close()
+
+        # Convertir el resultado en un formato JSON
+        columns = [
+            "solicitud_id",
+            "nb_clase_id",
+            "dc_horario",
+            "nb_cupos_disponibles",
+            "df_fecha",
+            "df_hora",
+            "tb_gimnasio_id",
+            "dc_nombre_clase",
+            "dc_imagen_url"
+        ]
+        
+        json_result = []
+        for row in result:
+            row_dict = dict(zip(columns, row))
+            if isinstance(row_dict["df_hora"], timedelta):
+                # Convertir timedelta a string en formato HH:MM:SS
+                row_dict["df_hora"] = str(row_dict["df_hora"])
+            json_result.append(row_dict)
+
+        return jsonify(json_result), 200
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
