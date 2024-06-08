@@ -83,7 +83,8 @@ def register_gym():
             )
 
         # Llamar al método para subir la imagen a ImgBB
-        image_url = upload_image_to_imgbb(imagen_base64)
+        response = upload_image_to_imgbb(imagen_base64)
+        image_url = response.json()["data"]["url"]
         if not image_url:
             return jsonify({"error": "Error al cargar la imagen"}), 500
 
@@ -571,6 +572,7 @@ def get_classes_by_gym(gym_id):
             "tb_arte_marcial_id",
             "tb_profesor_id",
             "dc_imagen_url",
+            "dc_descripcion"
         ]
         json_result = [dict(zip(columns, row)) for row in result]
 
@@ -896,15 +898,29 @@ def get_solicitudes_registro():
         conn = get_conection()
         with conn.cursor() as cursor:
             cursor.execute("CALL sp_ObtenerSolicitudesRegistro")
-            solicitudes = cursor.fetchall()
+            raw_solicitudes = cursor.fetchall()
         conn.close()
 
-        # Convertir las solicitudes obtenidas a un formato JSON y devolverlas
+        solicitudes = []
+        for solicitud in raw_solicitudes:
+            solicitudes.append({
+                "id_solicitud_registro": solicitud[0],
+                "id_estado_solRegistro": solicitud[1],
+                "id_gimnasio": solicitud[2],
+                "df_fecha_solicitud": solicitud[3],
+                "df_fecha_aprobacion": solicitud[4],
+                "nombre_gimnasio": solicitud[5],
+                "telefono_gimnasio": solicitud[6],
+                "correo_gimnasio": solicitud[7],
+                "direccion_gimnasio": solicitud[8],
+                "foto_gimnasio": solicitud[9]
+            })
+
         return jsonify({"solicitudes_registro": solicitudes}), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    
+
 
 @routes.route("/reservarClase", methods=["POST"])
 def reservar_clase():
@@ -927,15 +943,32 @@ def reservar_clase():
             solicitud_id = cursor.fetchone()[0]
             conn.commit()
 
-            # Obtener correo del usuario
-            cursor.execute("SELECT dc_correo_electronico FROM tb_usuario WHERE id = %s", [usuario_id])
-            user_email = cursor.fetchone()[0]
+            cursor.execute("SELECT dc_correo_electronico, dc_nombre FROM tb_usuario WHERE id = %s", [usuario_id])
+            user_email, user_name = cursor.fetchone()
 
         conn.close()
 
-        # Enviar correo de confirmación de reserva
-        cuerpo_html = f"<p>Hola,</p><p>Tu reserva para la clase ha sido creada correctamente.</p><p>Fecha: {fecha}</p><p>Hora: {hora}</p>"
-        enviar_correo(user_email, "Reserva de Clase", cuerpo_html)
+        cuerpo_html = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; margin: 0; padding: 0;">
+            <div style="background-color: #f4f4f4; padding: 20px;">
+                <div style="max-width: 600px; background-color: #ffffff; margin: auto; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                    <h2 style="color: #333;">Hola {user_name},</h2>
+                    <p>Tu reserva para la clase ha sido creada correctamente.</p>
+                    <p><strong>Fecha:</strong> {fecha}</p>
+                    <p><strong>Hora:</strong> {hora}</p>
+                    <p>Gracias por usar Martial Apps. Esperamos que disfrutes de tu clase.</p>
+                    <p>Saludos,<br>El equipo de Martial Apps</p>
+                    <div style="text-align: center; margin-top: 20px;">
+                        <a href="http://127.0.0.1:5173/" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ir a Martial Apps</a>
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        enviar_correo(user_email, "Reserva de Clase - Martial Apps", cuerpo_html)
 
         return jsonify({"ok": True, "mensaje": "Solicitud de reserva creada correctamente y correo enviado", "solicitud": {"id": solicitud_id, "clase_id": clase_id, "gimnasio_id": gimnasio_id, "fecha": fecha, "hora": hora, "usuario_id": usuario_id}}), 200
 
@@ -994,6 +1027,7 @@ def enviar_correo(destinatario, asunto, cuerpo_html):
     mail = current_app.extensions.get('mail')
     mail.send(msg)
 
+
 @routes.route('/aceptar_solicitud/<int:id_solicitud>', methods=['POST'])
 def aceptar_solicitud(id_solicitud):
     try:
@@ -1002,21 +1036,38 @@ def aceptar_solicitud(id_solicitud):
         cursor.callproc('sp_AceptarSolicitudRegistro', [id_solicitud])
         conn.commit()
 
-        # Obtener detalles de la solicitud y el gimnasio
         cursor.execute("SELECT id_gimnasio FROM tb_solicitud_registro WHERE id_solicitud_registro = %s", [id_solicitud])
         id_gimnasio = cursor.fetchone()[0]
 
-        cursor.execute("SELECT dc_correo_electronico FROM tb_gimnasio WHERE id = %s", [id_gimnasio])
-        gym_email = cursor.fetchone()[0]
+        cursor.execute("SELECT dc_correo_electronico, dc_nombre FROM tb_gimnasio WHERE id = %s", [id_gimnasio])
+        gym_email, gym_name = cursor.fetchone()
 
-        # Enviar correo de confirmación
-        cuerpo_html = f"<p>Hola,</p><p>Tu solicitud de registro ha sido aceptada.</p>"
-        enviar_correo(gym_email, "Solicitud Aceptada", cuerpo_html)
+        cuerpo_html = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; margin: 0; padding: 0;">
+            <div style="background-color: #f4f4f4; padding: 20px;">
+                <div style="max-width: 600px; background-color: #ffffff; margin: auto; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                    <h2 style="color: #333;">Hola {gym_name},</h2>
+                    <p>Tu solicitud de registro ha sido <strong>aceptada</strong>.</p>
+                    <p>¡Bienvenido a Martial Apps!</p>
+                    <p>Gracias por unirte a nuestra comunidad. Ahora puedes acceder a todas las funciones de nuestra plataforma.</p>
+                    <p>Saludos,<br>El equipo de Martial Apps</p>
+                    <div style="text-align: center; margin-top: 20px;">
+                        <a href="http://127.0.0.1:5173/" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ir a Martial Apps</a>
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        enviar_correo(gym_email, "Solicitud Aceptada - Martial Apps", cuerpo_html)
 
         return jsonify({"mensaje": "Solicitud aceptada y correo enviado correctamente"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    
+
+
 @routes.route('/rechazar_solicitud/<int:id_solicitud>', methods=['POST'])
 def rechazar_solicitud(id_solicitud):
     try:
@@ -1025,16 +1076,29 @@ def rechazar_solicitud(id_solicitud):
         cursor.callproc('sp_RechazarSolicitudRegistro', [id_solicitud])
         conn.commit()
 
-        # Obtener detalles de la solicitud y el gimnasio
         cursor.execute("SELECT id_gimnasio FROM tb_solicitud_registro WHERE id_solicitud_registro = %s", [id_solicitud])
         id_gimnasio = cursor.fetchone()[0]
 
-        cursor.execute("SELECT dc_correo_electronico FROM tb_gimnasio WHERE id = %s", [id_gimnasio])
-        gym_email = cursor.fetchone()[0]
+        cursor.execute("SELECT dc_correo_electronico, dc_nombre FROM tb_gimnasio WHERE id = %s", [id_gimnasio])
+        gym_email, gym_name = cursor.fetchone()
 
-        # Enviar correo de rechazo
-        cuerpo_html = f"<p>Hola,</p><p>Tu solicitud de registro ha sido rechazada.</p>"
-        enviar_correo(gym_email, "Solicitud Rechazada", cuerpo_html)
+        cuerpo_html = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; margin: 0; padding: 0;">
+            <div style="background-color: #f4f4f4; padding: 20px;">
+                <div style="max-width: 600px; background-color: #ffffff; margin: auto; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                    <h2 style="color: #333;">Hola {gym_name},</h2>
+                    <p>Lamentamos informarte que tu solicitud de registro ha sido <strong>rechazada</strong>.</p>
+                    <p>Te agradecemos por tu interés en unirte a Martial Apps.</p>
+                    <p>Si tienes alguna duda o necesitas más información, no dudes en contactarnos.</p>
+                    <p>Saludos,<br>El equipo de Martial Apps</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        enviar_correo(gym_email, "Solicitud Rechazada - Martial Apps", cuerpo_html)
 
         return jsonify({"mensaje": "Solicitud rechazada y correo enviado correctamente"}), 200
     except Exception as e:
