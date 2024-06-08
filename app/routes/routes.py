@@ -1,6 +1,6 @@
 import requests
 from app.database.mysql_conection import get_conection
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify, session, current_app
 from ..models.user import ModelUser
 from ..models.entities.Usersmodel import User
 from datetime import datetime, timedelta, date, time
@@ -14,9 +14,8 @@ from flask_jwt_extended import (
     jwt_required,
     get_jwt_identity,
 )
+from flask_mail import Message
 import mysql.connector
-import datetime
-
 
 routes = Blueprint("routes", __name__)
 
@@ -57,6 +56,14 @@ def convert_timedelta_to_string(data):
 
 """access and register routes"""
 
+import requests
+
+def upload_image_to_imgbb(base64_image):
+    url = "https://api.imgbb.com/1/upload"
+    payload = {"key": IMG_API_KEY, "image": base64_image}
+    response = requests.post(url, data=payload)
+    return response
+
 @routes.route("/registerGym", methods=["POST"])
 def register_gym():
     try:
@@ -69,6 +76,8 @@ def register_gym():
         contrasena = data.get("contrasena")
         telefono = data.get("telefonoGimnasio")
         ubicacion_gimnasio = data.get("ubicacionGimnasio")
+        descripcion = data.get("descripcion")
+        imagen_base64 = data.get("imagen_base64")  # Nuevo campo para la imagen en base64
 
         # Verificar si todos los campos requeridos están presentes y no son nulos
         required_fields = {
@@ -77,6 +86,8 @@ def register_gym():
             "contrasena",
             "telefonoGimnasio",
             "ubicacionGimnasio",
+            "descripcion",
+            "imagen_base64",
         }
         missing_fields = required_fields - set(data.keys())
         if missing_fields:
@@ -88,6 +99,12 @@ def register_gym():
                 ),
                 400,
             )
+
+        # Llamar al método para subir la imagen a ImgBB
+        response = upload_image_to_imgbb(imagen_base64)
+        image_url = response.json()["data"]["url"]
+        if not image_url:
+            return jsonify({"error": "Error al cargar la imagen"}), 500
 
         # Llamar al stored procedure para registrar el gimnasio
         conn = get_conection()
@@ -101,24 +118,20 @@ def register_gym():
             
             # Definir el horario y la descripción predeterminados
             horario_predeterminado = "9:00 - 16:00"
-            descripcion_predeterminada = "Aquí debe ir la descripción del gimnasio"
-            img = "Aquí debe ir la descripción del gimnasio"
             
             # Insertar el nuevo registro en la tabla tb_gimnasio con el nuevo ID
             cursor.execute(
                 "INSERT INTO tb_gimnasio (id, dc_nombre, dc_correo_electronico, dc_contrasena, dc_telefono, dc_ubicacion, dc_horario, df_fecha_ingreso, dc_descripcion, dc_imagen_url) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s)",
-                (new_id, nombre_gimnasio, correo, contrasena, telefono, ubicacion_gimnasio, horario_predeterminado, descripcion_predeterminada, img),
+                (new_id, nombre_gimnasio, correo, contrasena, telefono, ubicacion_gimnasio, horario_predeterminado, descripcion, image_url),
             )
             conn.commit()
 
             # Llamar al stored procedure para registrar la solicitud de registro
             cursor.callproc(
                 "sp_InsertarSolicitudRegistro",
-                (new_id, datetime.datetime.now()),
+                (new_id, datetime.now()),
             )
             conn.commit()
-
-        conn.close()
 
         # Devolver respuesta exitosa
         return jsonify({"mensaje": "Solicitud de registro de gimnasio enviada correctamente"}), 200
@@ -126,7 +139,6 @@ def register_gym():
     except Exception as e:
         # Devolver error en caso de excepción
         return jsonify({"error": str(e)}), 500
-
 @routes.route("/register", methods=["POST"])
 def register_user():
     try:
@@ -142,7 +154,7 @@ def register_user():
         nivel_artes_marciales_id = data.get("tb_nivel_artes_marciales_id")
         tipo_usuario_id = data.get("tb_tipo_usuario_id")
         usuario_estado_id = data.get("tb_usuario_estado_id")
-        nivel_id = data.get("tb_nivel_artes_marciales_id")
+        nivel_id = data.get("tb_nivel_id")
         contacto_emergencia_id = data.get("tb_contacto_emergencia_id")
         es_gimnasio = data.get("es_gimnasio")
 
@@ -572,26 +584,44 @@ def get_all_niveles():
 """lessons routes"""
 
 
+from datetime import datetime, date, time, timedelta
+
+def convert_timedelta_to_string(data):
+    converted_data = []
+    for item in data:
+        converted_item = []
+        for value in item:
+            if isinstance(value, timedelta):
+                converted_item.append(str(value))
+            elif isinstance(value, datetime):
+                converted_item.append(value.strftime("%Y-%m-%d %H:%M:%S"))
+            elif isinstance(value, date):
+                converted_item.append(value.strftime("%Y-%m-%d"))
+            elif isinstance(value, time):
+                converted_item.append(value.strftime("%H:%M:%S"))
+            else:
+                converted_item.append(value)
+        converted_data.append(converted_item)
+    return converted_data
+
 @routes.route("/classes/<int:gym_id>", methods=["GET"])
 def get_classes_by_gym(gym_id):
     try:
         conn = get_conection()  # Obtener conexión a la base de datos
         with conn.cursor() as cursor:
             cursor.callproc("sp_obtenerClase", (gym_id,))
-            result = (
-                cursor.fetchall()
-            )  # Obtener todos los registros devueltos por el procedimiento almacenado
+            result = cursor.fetchall()  # Obtener todos los registros devueltos por el procedimiento almacenado
         conn.close()  # Cerrar la conexión
 
+        # Convertir timedelta a string si es necesario
         result = convert_timedelta_to_string(result)
 
-        # Convertir resultado a una lista de diccionarios para JSON
+        # Ajusta esta lista según las columnas que realmente devuelva tu procedimiento almacenado
         columns = [
             "id",
             "dc_nombre_clase",
             "dc_horario",
             "nb_cupos_disponibles",
-            "id_categoria",
             "df_fecha",
             "df_hora",
             "tb_clase_estado_id",
@@ -599,16 +629,13 @@ def get_classes_by_gym(gym_id):
             "tb_arte_marcial_id",
             "tb_profesor_id",
             "dc_imagen_url",
+            "dc_descripcion"
         ]
         json_result = [dict(zip(columns, row)) for row in result]
 
         return jsonify(json_result), 200  # Devolver la lista de clases como JSON
     except Exception as e:
-        return (
-            jsonify({"error": str(e)}),
-            500,
-        )  # Devolver un error 500 en caso de excepción
-
+        return jsonify({"error": str(e)}), 500  # Devolver un error 500 en caso de excepción
 
 """Configurations routes"""
 
@@ -697,12 +724,21 @@ def change_password():
         return jsonify({"error": str(e)}), 500
 
 
+from flask import request, jsonify
+from datetime import timedelta
+from flask import request, jsonify
+from datetime import timedelta
+
 @routes.route("/create_class", methods=["POST"])
 def create_class():
     conn = None
     cursor = None
     try:
         data = request.get_json()
+
+        # Log para imprimir los datos recibidos
+        print("Datos recibidos:")
+        print(data)
 
         # Validar datos requeridos
         required_fields = {
@@ -746,26 +782,48 @@ def create_class():
                 data["arte_marcial_id"],
                 data["profesor_id"],
                 image_url,
+                data["descripcion"],
             ),
         )
         conn.commit()
         result = cursor.fetchall()
 
-        if result and result[0]["success"]:
+        # Log para imprimir el resultado de la consulta
+        print("Resultado de la consulta:")
+        print(result)
+
+        def convert_timedelta_to_string(data):
+            converted_data = []
+            for item in data:
+                converted_item = {}
+                for i, value in enumerate(item):
+                    if isinstance(value, timedelta):
+                        converted_item[cursor.description[i][0]] = str(value)
+                    else:
+                        converted_item[cursor.description[i][0]] = value
+                converted_data.append(converted_item)
+            return converted_data
+
+        converted_result = convert_timedelta_to_string(result)
+
+        if converted_result and converted_result[0]['tb_clase_estado_id']:
             return (
-                jsonify({"message": "Clase creada exitosamente!", "class": result[0]}),
+                jsonify({"message": "Clase creada exitosamente!", "class": converted_result[0]}),
                 200,
             )
         else:
-            return jsonify({"error": "No se pudo crear la clase."}), 400
+            return jsonify({"error": "No se pudo crear la clase o la información retornada no es válida."}), 400
 
     except mysql.connector.Error as err:
-        return jsonify({"error": str(err)}), 400
+        return jsonify({"error": f"Error de MySQL: {str(err)}"}), 500
+    except Exception as e:
+        return jsonify({"error": f"Ocurrió un error inesperado: {str(e)}"}), 500
     finally:
         if cursor:
             cursor.close()
         if conn:
             conn.close()
+
 
 
 @routes.route("/getAdditionalInfo", methods=["GET"])
@@ -827,7 +885,6 @@ def get_classes():
             "dc_nombre_clase",
             "dc_horario",
             "nb_cupos_disponibles",
-            "id_categoria",
             "df_fecha",
             "df_hora",
             "tb_clase_estado_id",
@@ -898,15 +955,136 @@ def get_solicitudes_registro():
         conn = get_conection()
         with conn.cursor() as cursor:
             cursor.execute("CALL sp_ObtenerSolicitudesRegistro")
-            solicitudes = cursor.fetchall()
+            raw_solicitudes = cursor.fetchall()
         conn.close()
 
-        # Convertir las solicitudes obtenidas a un formato JSON y devolverlas
+        solicitudes = []
+        for solicitud in raw_solicitudes:
+            solicitudes.append({
+                "id_solicitud_registro": solicitud[0],
+                "id_estado_solRegistro": solicitud[1],
+                "id_gimnasio": solicitud[2],
+                "df_fecha_solicitud": solicitud[3],
+                "df_fecha_aprobacion": solicitud[4],
+                "nombre_gimnasio": solicitud[5],
+                "telefono_gimnasio": solicitud[6],
+                "correo_gimnasio": solicitud[7],
+                "direccion_gimnasio": solicitud[8],
+                "foto_gimnasio": solicitud[9]
+            })
+
         return jsonify({"solicitudes_registro": solicitudes}), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    
+
+
+@routes.route("/reservarClase", methods=["POST"])
+def reservar_clase():
+    try:
+        data = request.get_json()
+        clase_id = data.get("clase_id")
+        gimnasio_id = data.get("gimnasio_id")
+        usuario_id = data.get("usuario_id")
+        fecha = data.get("fecha")
+        hora = data.get("hora")
+
+        required_fields = {"clase_id", "gimnasio_id", "usuario_id", "fecha", "hora"}
+        missing_fields = required_fields - set(data.keys())
+        if missing_fields:
+            return jsonify({"ok": False, "mensaje": f'Faltan los siguientes campos: {", ".join(missing_fields)}', "solicitud": None}), 400
+
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_InsertarSolicitudReserva", (clase_id, gimnasio_id, fecha, hora, usuario_id))
+            solicitud_id = cursor.fetchone()[0]
+            conn.commit()
+
+            cursor.execute("SELECT dc_correo_electronico, dc_nombre FROM tb_usuario WHERE id = %s", [usuario_id])
+            user_email, user_name = cursor.fetchone()
+
+        conn.close()
+
+        cuerpo_html = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; margin: 0; padding: 0;">
+            <div style="background-color: #f4f4f4; padding: 20px;">
+                <div style="max-width: 600px; background-color: #ffffff; margin: auto; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                    <h2 style="color: #333;">Hola {user_name},</h2>
+                    <p>Tu reserva para la clase ha sido creada correctamente.</p>
+                    <p><strong>Fecha:</strong> {fecha}</p>
+                    <p><strong>Hora:</strong> {hora}</p>
+                    <p>Gracias por usar Martial Apps. Esperamos que disfrutes de tu clase.</p>
+                    <p>Saludos,<br>El equipo de Martial Apps</p>
+                    <div style="text-align: center; margin-top: 20px;">
+                        <a href="http://127.0.0.1:5173/" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ir a Martial Apps</a>
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        enviar_correo(user_email, "Reserva de Clase - Martial Apps", cuerpo_html)
+
+        return jsonify({"ok": True, "mensaje": "Solicitud de reserva creada correctamente y correo enviado", "solicitud": {"id": solicitud_id, "clase_id": clase_id, "gimnasio_id": gimnasio_id, "fecha": fecha, "hora": hora, "usuario_id": usuario_id}}), 200
+
+    except Exception as e:
+        return jsonify({"ok": False, "mensaje": str(e), "solicitud": None}), 500
+
+
+
+from datetime import timedelta
+
+@routes.route("/user/reservation-requests", methods=["GET"])
+def get_reservation_requests():
+    try:
+        # Obtener el ID del usuario desde la solicitud
+        tb_usuario_id = request.args.get("tb_usuario_id")
+
+        # Llamar al stored procedure para obtener las solicitudes de reserva del usuario
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_ObtenerSolicitudesReservaUsuario", (tb_usuario_id,))
+            result = cursor.fetchall()
+        conn.close()
+
+        # Convertir el resultado en un formato JSON
+        columns = [
+            "solicitud_id",
+            "nb_clase_id",
+            "dc_horario",
+            "nb_cupos_disponibles",
+            "df_fecha",
+            "df_hora",
+            "tb_gimnasio_id",
+            "dc_nombre_clase",
+            "dc_imagen_url"
+        ]
+        
+        json_result = []
+        for row in result:
+            row_dict = dict(zip(columns, row))
+            if isinstance(row_dict["df_hora"], timedelta):
+                # Convertir timedelta a string en formato HH:MM:SS
+                row_dict["df_hora"] = str(row_dict["df_hora"])
+            json_result.append(row_dict)
+
+        return jsonify(json_result), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# Configuracion de correos
+
+def enviar_correo(destinatario, asunto, cuerpo_html):
+    msg = Message(asunto, sender=current_app.config['MAIL_USERNAME'], recipients=[destinatario])
+    msg.html = cuerpo_html
+    mail = current_app.extensions.get('mail')
+    mail.send(msg)
+
+
 @routes.route('/aceptar_solicitud/<int:id_solicitud>', methods=['POST'])
 def aceptar_solicitud(id_solicitud):
     try:
@@ -914,11 +1092,39 @@ def aceptar_solicitud(id_solicitud):
         cursor = conn.cursor()
         cursor.callproc('sp_AceptarSolicitudRegistro', [id_solicitud])
         conn.commit()
-        return jsonify({"mensaje": "Solicitud aceptada correctamente"}), 200
+
+        cursor.execute("SELECT id_gimnasio FROM tb_solicitud_registro WHERE id_solicitud_registro = %s", [id_solicitud])
+        id_gimnasio = cursor.fetchone()[0]
+
+        cursor.execute("SELECT dc_correo_electronico, dc_nombre FROM tb_gimnasio WHERE id = %s", [id_gimnasio])
+        gym_email, gym_name = cursor.fetchone()
+
+        cuerpo_html = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; margin: 0; padding: 0;">
+            <div style="background-color: #f4f4f4; padding: 20px;">
+                <div style="max-width: 600px; background-color: #ffffff; margin: auto; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                    <h2 style="color: #333;">Hola {gym_name},</h2>
+                    <p>Tu solicitud de registro ha sido <strong>aceptada</strong>.</p>
+                    <p>¡Bienvenido a Martial Apps!</p>
+                    <p>Gracias por unirte a nuestra comunidad. Ahora puedes acceder a todas las funciones de nuestra plataforma.</p>
+                    <p>Saludos,<br>El equipo de Martial Apps</p>
+                    <div style="text-align: center; margin-top: 20px;">
+                        <a href="http://127.0.0.1:5173/" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ir a Martial Apps</a>
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        enviar_correo(gym_email, "Solicitud Aceptada - Martial Apps", cuerpo_html)
+
+        return jsonify({"mensaje": "Solicitud aceptada y correo enviado correctamente"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Ruta para rechazar una solicitud de registro
+
 @routes.route('/rechazar_solicitud/<int:id_solicitud>', methods=['POST'])
 def rechazar_solicitud(id_solicitud):
     try:
@@ -926,6 +1132,31 @@ def rechazar_solicitud(id_solicitud):
         cursor = conn.cursor()
         cursor.callproc('sp_RechazarSolicitudRegistro', [id_solicitud])
         conn.commit()
-        return jsonify({"mensaje": "Solicitud rechazada correctamente"}), 200
+
+        cursor.execute("SELECT id_gimnasio FROM tb_solicitud_registro WHERE id_solicitud_registro = %s", [id_solicitud])
+        id_gimnasio = cursor.fetchone()[0]
+
+        cursor.execute("SELECT dc_correo_electronico, dc_nombre FROM tb_gimnasio WHERE id = %s", [id_gimnasio])
+        gym_email, gym_name = cursor.fetchone()
+
+        cuerpo_html = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; margin: 0; padding: 0;">
+            <div style="background-color: #f4f4f4; padding: 20px;">
+                <div style="max-width: 600px; background-color: #ffffff; margin: auto; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                    <h2 style="color: #333;">Hola {gym_name},</h2>
+                    <p>Lamentamos informarte que tu solicitud de registro ha sido <strong>rechazada</strong>.</p>
+                    <p>Te agradecemos por tu interés en unirte a Martial Apps.</p>
+                    <p>Si tienes alguna duda o necesitas más información, no dudes en contactarnos.</p>
+                    <p>Saludos,<br>El equipo de Martial Apps</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        enviar_correo(gym_email, "Solicitud Rechazada - Martial Apps", cuerpo_html)
+
+        return jsonify({"mensaje": "Solicitud rechazada y correo enviado correctamente"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
