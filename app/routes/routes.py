@@ -1,6 +1,6 @@
 import requests
 from app.database.mysql_conection import get_conection
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify, session, current_app
 from ..models.user import ModelUser
 from ..models.entities.Usersmodel import User
 from datetime import datetime, timedelta, date, time
@@ -14,9 +14,8 @@ from flask_jwt_extended import (
     jwt_required,
     get_jwt_identity,
 )
+from flask_mail import Message
 import mysql.connector
-import datetime
-
 
 routes = Blueprint("routes", __name__)
 
@@ -863,29 +862,6 @@ def get_solicitudes_registro():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     
-@routes.route('/aceptar_solicitud/<int:id_solicitud>', methods=['POST'])
-def aceptar_solicitud(id_solicitud):
-    try:
-        conn = get_conection()
-        cursor = conn.cursor()
-        cursor.callproc('sp_AceptarSolicitudRegistro', [id_solicitud])
-        conn.commit()
-        return jsonify({"mensaje": "Solicitud aceptada correctamente"}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# Ruta para rechazar una solicitud de registro
-@routes.route('/rechazar_solicitud/<int:id_solicitud>', methods=['POST'])
-def rechazar_solicitud(id_solicitud):
-    try:
-        conn = get_conection()
-        cursor = conn.cursor()
-        cursor.callproc('sp_RechazarSolicitudRegistro', [id_solicitud])
-        conn.commit()
-        return jsonify({"mensaje": "Solicitud rechazada correctamente"}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 
 @routes.route("/reservarClase", methods=["POST"])
 def reservar_clase():
@@ -893,11 +869,10 @@ def reservar_clase():
         data = request.get_json()
         clase_id = data.get("clase_id")
         gimnasio_id = data.get("gimnasio_id")
-        usuario_id = data.get("usuario_id")  # Este ID debería obtenerse del localStorage en tu aplicación
+        usuario_id = data.get("usuario_id")
         fecha = data.get("fecha")
         hora = data.get("hora")
 
-        # Verificar si todos los campos requeridos están presentes y no son nulos
         required_fields = {"clase_id", "gimnasio_id", "usuario_id", "fecha", "hora"}
         missing_fields = required_fields - set(data.keys())
         if missing_fields:
@@ -909,9 +884,17 @@ def reservar_clase():
             solicitud_id = cursor.fetchone()[0]
             conn.commit()
 
+            # Obtener correo del usuario
+            cursor.execute("SELECT dc_correo_electronico FROM tb_usuario WHERE id = %s", [usuario_id])
+            user_email = cursor.fetchone()[0]
+
         conn.close()
 
-        return jsonify({"ok": True, "mensaje": "Solicitud de reserva creada correctamente", "solicitud": {"id": solicitud_id, "clase_id": clase_id, "gimnasio_id": gimnasio_id, "fecha": fecha, "hora": hora, "usuario_id": usuario_id}}), 200
+        # Enviar correo de confirmación de reserva
+        cuerpo_html = f"<p>Hola,</p><p>Tu reserva para la clase ha sido creada correctamente.</p><p>Fecha: {fecha}</p><p>Hora: {hora}</p>"
+        enviar_correo(user_email, "Reserva de Clase", cuerpo_html)
+
+        return jsonify({"ok": True, "mensaje": "Solicitud de reserva creada correctamente y correo enviado", "solicitud": {"id": solicitud_id, "clase_id": clase_id, "gimnasio_id": gimnasio_id, "fecha": fecha, "hora": hora, "usuario_id": usuario_id}}), 200
 
     except Exception as e:
         return jsonify({"ok": False, "mensaje": str(e), "solicitud": None}), 500
@@ -956,5 +939,60 @@ def get_reservation_requests():
 
         return jsonify(json_result), 200
 
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# Configuracion de correos
+
+def enviar_correo(destinatario, asunto, cuerpo_html):
+    msg = Message(asunto, sender=current_app.config['MAIL_USERNAME'], recipients=[destinatario])
+    msg.html = cuerpo_html
+    mail = current_app.extensions.get('mail')
+    mail.send(msg)
+
+@routes.route('/aceptar_solicitud/<int:id_solicitud>', methods=['POST'])
+def aceptar_solicitud(id_solicitud):
+    try:
+        conn = get_conection()
+        cursor = conn.cursor()
+        cursor.callproc('sp_AceptarSolicitudRegistro', [id_solicitud])
+        conn.commit()
+
+        # Obtener detalles de la solicitud y el gimnasio
+        cursor.execute("SELECT id_gimnasio FROM tb_solicitud_registro WHERE id_solicitud_registro = %s", [id_solicitud])
+        id_gimnasio = cursor.fetchone()[0]
+
+        cursor.execute("SELECT dc_correo_electronico FROM tb_gimnasio WHERE id = %s", [id_gimnasio])
+        gym_email = cursor.fetchone()[0]
+
+        # Enviar correo de confirmación
+        cuerpo_html = f"<p>Hola,</p><p>Tu solicitud de registro ha sido aceptada.</p>"
+        enviar_correo(gym_email, "Solicitud Aceptada", cuerpo_html)
+
+        return jsonify({"mensaje": "Solicitud aceptada y correo enviado correctamente"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+@routes.route('/rechazar_solicitud/<int:id_solicitud>', methods=['POST'])
+def rechazar_solicitud(id_solicitud):
+    try:
+        conn = get_conection()
+        cursor = conn.cursor()
+        cursor.callproc('sp_RechazarSolicitudRegistro', [id_solicitud])
+        conn.commit()
+
+        # Obtener detalles de la solicitud y el gimnasio
+        cursor.execute("SELECT id_gimnasio FROM tb_solicitud_registro WHERE id_solicitud_registro = %s", [id_solicitud])
+        id_gimnasio = cursor.fetchone()[0]
+
+        cursor.execute("SELECT dc_correo_electronico FROM tb_gimnasio WHERE id = %s", [id_gimnasio])
+        gym_email = cursor.fetchone()[0]
+
+        # Enviar correo de rechazo
+        cuerpo_html = f"<p>Hola,</p><p>Tu solicitud de registro ha sido rechazada.</p>"
+        enviar_correo(gym_email, "Solicitud Rechazada", cuerpo_html)
+
+        return jsonify({"mensaje": "Solicitud rechazada y correo enviado correctamente"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
