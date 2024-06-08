@@ -38,6 +38,14 @@ def upload_image_to_imgbb(base64_image):
 
 """access and register routes"""
 
+import requests
+
+def upload_image_to_imgbb(base64_image):
+    url = "https://api.imgbb.com/1/upload"
+    payload = {"key": IMG_API_KEY, "image": base64_image}
+    response = requests.post(url, data=payload)
+    return response
+
 @routes.route("/registerGym", methods=["POST"])
 def register_gym():
     try:
@@ -50,6 +58,8 @@ def register_gym():
         contrasena = data.get("contrasena")
         telefono = data.get("telefonoGimnasio")
         ubicacion_gimnasio = data.get("ubicacionGimnasio")
+        descripcion = data.get("descripcion")
+        imagen_base64 = data.get("imagen_base64")  # Nuevo campo para la imagen en base64
 
         # Verificar si todos los campos requeridos están presentes y no son nulos
         required_fields = {
@@ -58,6 +68,8 @@ def register_gym():
             "contrasena",
             "telefonoGimnasio",
             "ubicacionGimnasio",
+            "descripcion",
+            "imagen_base64",
         }
         missing_fields = required_fields - set(data.keys())
         if missing_fields:
@@ -69,6 +81,11 @@ def register_gym():
                 ),
                 400,
             )
+
+        # Llamar al método para subir la imagen a ImgBB
+        image_url = upload_image_to_imgbb(imagen_base64)
+        if not image_url:
+            return jsonify({"error": "Error al cargar la imagen"}), 500
 
         # Llamar al stored procedure para registrar el gimnasio
         conn = get_conection()
@@ -82,24 +99,20 @@ def register_gym():
             
             # Definir el horario y la descripción predeterminados
             horario_predeterminado = "9:00 - 16:00"
-            descripcion_predeterminada = "Aquí debe ir la descripción del gimnasio"
-            img = "Aquí debe ir la descripción del gimnasio"
             
             # Insertar el nuevo registro en la tabla tb_gimnasio con el nuevo ID
             cursor.execute(
                 "INSERT INTO tb_gimnasio (id, dc_nombre, dc_correo_electronico, dc_contrasena, dc_telefono, dc_ubicacion, dc_horario, df_fecha_ingreso, dc_descripcion, dc_imagen_url) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s)",
-                (new_id, nombre_gimnasio, correo, contrasena, telefono, ubicacion_gimnasio, horario_predeterminado, descripcion_predeterminada, img),
+                (new_id, nombre_gimnasio, correo, contrasena, telefono, ubicacion_gimnasio, horario_predeterminado, descripcion, image_url),
             )
             conn.commit()
 
             # Llamar al stored procedure para registrar la solicitud de registro
             cursor.callproc(
                 "sp_InsertarSolicitudRegistro",
-                (new_id, datetime.datetime.now()),
+                (new_id, datetime.now()),
             )
             conn.commit()
-
-        conn.close()
 
         # Devolver respuesta exitosa
         return jsonify({"mensaje": "Solicitud de registro de gimnasio enviada correctamente"}), 200
@@ -107,7 +120,6 @@ def register_gym():
     except Exception as e:
         # Devolver error en caso de excepción
         return jsonify({"error": str(e)}), 500
-
 @routes.route("/register", methods=["POST"])
 def register_user():
     try:
@@ -123,7 +135,7 @@ def register_user():
         nivel_artes_marciales_id = data.get("tb_nivel_artes_marciales_id")
         tipo_usuario_id = data.get("tb_tipo_usuario_id")
         usuario_estado_id = data.get("tb_usuario_estado_id")
-        nivel_id = data.get("tb_nivel_artes_marciales_id")
+        nivel_id = data.get("tb_nivel_id")
         contacto_emergencia_id = data.get("tb_contacto_emergencia_id")
         es_gimnasio = data.get("es_gimnasio")
 
@@ -653,12 +665,21 @@ def change_password():
         return jsonify({"error": str(e)}), 500
 
 
+from flask import request, jsonify
+from datetime import timedelta
+from flask import request, jsonify
+from datetime import timedelta
+
 @routes.route("/create_class", methods=["POST"])
 def create_class():
     conn = None
     cursor = None
     try:
         data = request.get_json()
+
+        # Log para imprimir los datos recibidos
+        print("Datos recibidos:")
+        print(data)
 
         # Validar datos requeridos
         required_fields = {
@@ -702,26 +723,48 @@ def create_class():
                 data["arte_marcial_id"],
                 data["profesor_id"],
                 image_url,
+                data["descripcion"],
             ),
         )
         conn.commit()
         result = cursor.fetchall()
 
-        if result and result[0]["success"]:
+        # Log para imprimir el resultado de la consulta
+        print("Resultado de la consulta:")
+        print(result)
+
+        def convert_timedelta_to_string(data):
+            converted_data = []
+            for item in data:
+                converted_item = {}
+                for i, value in enumerate(item):
+                    if isinstance(value, timedelta):
+                        converted_item[cursor.description[i][0]] = str(value)
+                    else:
+                        converted_item[cursor.description[i][0]] = value
+                converted_data.append(converted_item)
+            return converted_data
+
+        converted_result = convert_timedelta_to_string(result)
+
+        if converted_result and converted_result[0]['tb_clase_estado_id']:
             return (
-                jsonify({"message": "Clase creada exitosamente!", "class": result[0]}),
+                jsonify({"message": "Clase creada exitosamente!", "class": converted_result[0]}),
                 200,
             )
         else:
-            return jsonify({"error": "No se pudo crear la clase."}), 400
+            return jsonify({"error": "No se pudo crear la clase o la información retornada no es válida."}), 400
 
     except mysql.connector.Error as err:
-        return jsonify({"error": str(err)}), 400
+        return jsonify({"error": f"Error de MySQL: {str(err)}"}), 500
+    except Exception as e:
+        return jsonify({"error": f"Ocurrió un error inesperado: {str(e)}"}), 500
     finally:
         if cursor:
             cursor.close()
         if conn:
             conn.close()
+
 
 
 @routes.route("/getAdditionalInfo", methods=["GET"])
