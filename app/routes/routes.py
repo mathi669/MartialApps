@@ -35,6 +35,24 @@ def upload_image_to_imgbb(base64_image):
     print(response.text)
     return response
 
+def convert_timedelta_to_string(data):
+    converted_data = []
+    for item in data:
+        converted_item = []
+        for value in item:
+            if isinstance(value, timedelta):
+                converted_item.append(str(value))
+            elif isinstance(value, datetime):
+                converted_item.append(value.strftime("%Y-%m-%d %H:%M:%S"))
+            elif isinstance(value, date):
+                converted_item.append(value.strftime("%Y-%m-%d"))
+            elif isinstance(value, time):
+                converted_item.append(value.strftime("%H:%M:%S"))
+            else:
+                converted_item.append(value)
+        converted_data.append(converted_item)
+    return converted_data
+
 
 """access and register routes"""
 
@@ -371,6 +389,7 @@ def get_gym(gym_id):
 @routes.route("/gyms", methods=["GET"])
 def get_all_gyms():
     try:
+        
         conn = get_conection()  # Obtener conexión a la base de datos
         with conn.cursor() as cursor:
             cursor.callproc("sp_GetAllGimnasios")
@@ -407,6 +426,44 @@ def get_all_gyms():
             jsonify({"error": str(e)}),
             500,
         )  # Devolver un error 500 en caso de excepción
+
+def format_result(cursor, result):
+    columns = [col[0] for col in cursor.description]
+    formatted_result = []
+    for row in result:
+        row_dict = dict(zip(columns, row))
+        for key, value in row_dict.items():
+            if isinstance(value, datetime):
+                row_dict[key] = value.strftime('%Y-%m-%d')
+            elif isinstance(value, timedelta):
+                total_seconds = int(value.total_seconds())
+                hours, remainder = divmod(total_seconds, 3600)
+                minutes, seconds = divmod(remainder, 60)
+                row_dict[key] = f'{hours:02}:{minutes:02}:{seconds:02}'
+        formatted_result.append(row_dict)
+    return formatted_result
+
+        
+@routes.route("/filterGyms", methods=["GET"])
+def get_filtered_gyms():
+    
+    tipo_artes_marciales = request.args.get("tipo_artes_marciales", None)
+    ubicacion = request.args.get("ubicacion", None)
+    horario = request.args.get("horario", None)
+    
+    try:
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            print(f"Llamando a sp_GetFilteredGimnasios con: {tipo_artes_marciales}, {ubicacion}, {horario}")
+            cursor.callproc("sp_GetFilteredGimnasios", (tipo_artes_marciales, ubicacion, horario))
+            result = cursor.fetchall()
+            print(f"Resultados obtenidos: {result}")
+            formatted_result = format_result(cursor, result)
+        conn.close()
+        
+        return jsonify({"gimnasios": formatted_result}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 """User routes"""
