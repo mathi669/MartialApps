@@ -388,16 +388,14 @@ def get_gym(gym_id):
 
 @routes.route("/gyms", methods=["GET"])
 def get_all_gyms():
+    query = request.args.get("query", "")
     try:
-        
         conn = get_conection()  # Obtener conexión a la base de datos
         with conn.cursor() as cursor:
-            cursor.callproc("sp_GetAllGimnasios")
-            result = (
-                cursor.fetchall()
-            )  # Obtener todos los registros devueltos por el procedimiento almacenado
+            cursor.callproc("sp_GetAllGimnasios", (query,))
+            result = cursor.fetchall()  # Obtener todos los registros devueltos por el procedimiento almacenado
         conn.close()  # Cerrar la conexión
-
+        
         # Formatear los resultados como una lista de diccionarios
         gimnasios = []
         for row in result:
