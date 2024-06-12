@@ -1,13 +1,12 @@
 import requests
 from app.database.mysql_conection import get_conection
 from flask import Blueprint, request, jsonify, session, current_app
-from ..models.user import ModelUser
-from ..models.entities.Usersmodel import User
+from app.models.user import ModelUser
 from datetime import datetime, timedelta, date, time
 from decouple import config
 from app.services.AuthService import AuthService
 from app.utils.Security import Security
-from ..models.schedule import ScheduleModel
+from app.models.schedule import ScheduleModel
 from flask_jwt_extended import (
     JWTManager,
     create_access_token,
