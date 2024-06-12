@@ -19,9 +19,9 @@ app.config['MAIL_USE_TLS'] = False
 app.config['MAIL_USE_SSL'] = True
 
 mail = Mail(app)
+app.config.from_object(config['development'])
+app.register_blueprint(routes, url_prefix='/')
 
 if __name__ == "__main__":
-    app.config.from_object(config['development'])
-    app.register_blueprint(routes, url_prefix='/')
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=True, host='0.0.0.0', port=port, threaded=True)
