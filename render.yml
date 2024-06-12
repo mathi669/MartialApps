@@ -1,7 +1,0 @@
-services:
-  - type: web
-    name: martialapps
-    env: python
-    plan: free
-    buildCommand: ""
-    startCommand: gunicorn app:app
