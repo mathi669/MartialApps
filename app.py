@@ -5,6 +5,7 @@ from app.routes.routes import routes  # Importa el blueprint routes correctament
 from flask_cors import CORS
 from decouple import config as env_config
 from flask_mail import Mail
+import os
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -22,4 +23,5 @@ mail = Mail(app)
 if __name__ == "__main__":
     app.config.from_object(config['development'])
     app.register_blueprint(routes, url_prefix='/')
-    app.run(debug=True, host='0.0.0.0', port=env_config('PORT'), threaded=True)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=True, host='0.0.0.0', port=port, threaded=True)
