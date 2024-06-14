@@ -984,7 +984,7 @@ def reservar_clase():
         gimnasio_id = data.get("gimnasio_id")
         usuario_id = data.get("usuario_id")
         fecha = data.get("fecha")
-        hora = data.get("hora")
+        hora = data.get("hora").split(' - ')[0]  # Tomar solo la hora de inicio
 
         required_fields = {"clase_id", "gimnasio_id", "usuario_id", "fecha", "hora"}
         missing_fields = required_fields - set(data.keys())
