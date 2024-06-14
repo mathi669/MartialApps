@@ -984,7 +984,7 @@ def reservar_clase():
         gimnasio_id = data.get("gimnasio_id")
         usuario_id = data.get("usuario_id")
         fecha = data.get("fecha")
-        hora = data.get("hora")
+        hora = data.get("hora").split(' - ')[0]  # Tomar solo la hora de inicio
 
         required_fields = {"clase_id", "gimnasio_id", "usuario_id", "fecha", "hora"}
         missing_fields = required_fields - set(data.keys())
@@ -1030,6 +1030,56 @@ def reservar_clase():
         return jsonify({"ok": False, "mensaje": str(e), "solicitud": None}), 500
 
 
+@routes.route("/reservasUsuario/<int:usuario_id>", methods=["GET"])
+def get_reservation(usuario_id):
+    try:
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_ObtenerReservasUsuario", [usuario_id])
+            reservas = cursor.fetchall()
+        conn.close()
+        
+        results = []
+        for reserva in reservas:
+            time_value = reserva[3]
+            if isinstance(time_value, timedelta):
+                hours, remainder = divmod(time_value.seconds, 3600)
+                minutes, _ = divmod(remainder, 60)
+                time_str = f"{hours:02}:{minutes:02}:00"
+            else:
+                time_str = time_value.strftime("%H:%M:%S")
+                
+            results.append({
+                "id": reserva[0],
+                "class": reserva[1],
+                "date": reserva[2].strftime("%Y-%m-%d"),
+                "time": time_str,
+                "description": reserva[4],
+                "gymImage": reserva[5]
+            })
+        
+        return jsonify({"ok": True, "reservas": results}), 200
+
+
+    except Exception as e:
+        return jsonify({"ok": False, "mensaje": str(e)}), 500
+
+
+@routes.route("/cancelarReserva/<int:reserva_id>", methods=["DELETE"])
+def cancelar_reserva(reserva_id):
+    try:
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_CancelarSolicitudReserva", [reserva_id])
+            conn.commit()
+        conn.close()
+
+        return jsonify({"ok": True, "mensaje": "Reserva cancelada exitosamente"}), 200
+
+    except Exception as e:
+        return jsonify({"ok": False, "mensaje": str(e)}), 500
+    
+    
 
 from datetime import timedelta
 
