@@ -1,4 +1,5 @@
 import requests
+from threading import Thread
 from app.database.mysql_conection import get_conection
 from flask import Blueprint, request, jsonify, session, current_app
 from app.models.user import ModelUser
@@ -13,10 +14,11 @@ from flask_jwt_extended import (
     jwt_required,
     get_jwt_identity,
 )
-from flask_mail import Message
+from flask_mail import Mail, Message
 import mysql.connector
 
 routes = Blueprint("routes", __name__)
+mail = Mail()
 
 jwtoken = config("JWT_SECRET_KEY")
 
@@ -387,7 +389,7 @@ def get_gym(gym_id):
 
 @routes.route("/gyms", methods=["GET"])
 def get_all_gyms():
-    query = request.args.get("query", "")
+    query = request.args.get("query", '')
     try:
         conn = get_conection()  # Obtener conexión a la base de datos
         with conn.cursor() as cursor:
@@ -1125,12 +1127,20 @@ def get_reservation_requests():
 
 # Configuracion de correos
 
-def enviar_correo(destinatario, asunto, cuerpo_html):
-    msg = Message(asunto, sender=current_app.config['MAIL_USERNAME'], recipients=[destinatario])
-    msg.html = cuerpo_html
-    mail = current_app.extensions.get('mail')
-    mail.send(msg)
+def enviar_correo_async(app, destinatario, asunto, cuerpo_html):
+    print("Enviando correo...")
+    with app.app_context():
+        try:
+            msg = Message(asunto, sender=current_app.config['MAIL_USERNAME'], recipients=[destinatario])
+            msg.html = cuerpo_html
+            mail.send(msg)
+            print("Correo enviado exitosamente!")
+        except Exception as e:
+            print("Error al enviar el correo:", str(e))
 
+def enviar_correo(destinatario, asunto, cuerpo_html):
+    thr = Thread(target=enviar_correo_async, args=[current_app._get_current_object(), destinatario, asunto, cuerpo_html])
+    thr.start()
 
 @routes.route('/aceptar_solicitud/<int:id_solicitud>', methods=['POST'])
 def aceptar_solicitud(id_solicitud):
@@ -1171,7 +1181,6 @@ def aceptar_solicitud(id_solicitud):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 @routes.route('/rechazar_solicitud/<int:id_solicitud>', methods=['POST'])
 def rechazar_solicitud(id_solicitud):
     try:
@@ -1207,3 +1216,87 @@ def rechazar_solicitud(id_solicitud):
         return jsonify({"mensaje": "Solicitud rechazada y correo enviado correctamente"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+"""comentarios y calificaciones"""
+
+@routes.route("/comments/gym/<int:gym_id>", methods=["GET", "POST"])
+def handle_gym_comments(gym_id):
+    if request.method == "POST":
+        data = request.json
+        user_id = data.get('user_id')
+        comment = data.get('comment')
+        rating = data.get('rating')
+
+        if not user_id or not comment or not rating:
+            return jsonify({"error": "Missing fields"}), 400
+
+        try:
+            conn = get_conection()
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "INSERT INTO tb_comentarios_gimnasio (tb_gimnasio_id, tb_usuario_id, dc_comentario, nb_puntaje) VALUES (%s, %s, %s, %s)",
+                    (gym_id, user_id, comment, rating)
+                )
+            conn.commit()
+            conn.close()
+            return jsonify({"message": "Comment added", "comment": comment, "rating": rating, "status": 201}), 201
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    else:
+        try:
+            conn = get_conection()
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """SELECT c.dc_comentario, c.nb_puntaje, c.df_fecha, u.dc_nombre
+                       FROM tb_comentarios_gimnasio c
+                       JOIN tb_usuario u ON c.tb_usuario_id = u.id
+                       WHERE c.tb_gimnasio_id = %s""", (gym_id,)
+                )
+                result = cursor.fetchall()
+            conn.close()
+            comments = [{"comment": row[0], "rating": row[1], "date": row[2], "user": row[3]} for row in result]
+            return jsonify({"comments": comments}), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+@routes.route("/comments/class/<int:class_id>", methods=["GET", "POST"])
+def handle_class_comments(class_id):
+    if request.method == "POST":
+        data = request.json
+        user_id = data.get('user_id')
+        comment = data.get('comment')
+        rating = data.get('rating')
+
+        if not user_id or not comment or not rating:
+            return jsonify({"error": "Missing fields"}), 400
+
+        try:
+            conn = get_conection()
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "INSERT INTO tb_comentarios_clase (tb_clase_id, tb_usuario_id, dc_comentario, nb_puntaje) VALUES (%s, %s, %s, %s)",
+                    (class_id, user_id, comment, rating)
+                )
+            conn.commit()
+            conn.close()
+            return jsonify({"message": "Comment added", "comment": comment, "rating": rating , "status": 201}), 201
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    else:
+        try:
+            conn = get_conection()
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """SELECT c.dc_comentario, c.nb_puntaje, c.df_fecha, u.dc_nombre
+                       FROM tb_comentarios_clase c
+                       JOIN tb_usuario u ON c.tb_usuario_id = u.id
+                       WHERE c.tb_clase_id = %s""", (class_id,)
+                )
+                result = cursor.fetchall()
+            conn.close()
+            comments = [{"comment": row[0], "rating": row[1], "date": row[2], "user": row[3]} for row in result]
+            return jsonify({"comments": comments}), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
