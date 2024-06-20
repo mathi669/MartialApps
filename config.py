@@ -12,6 +12,8 @@ class Config:
     IMG_BB_KEY = env_config('IMG_BB_KEY')
     MAIL_USERNAME = env_config('MAIL_USERNAME')
     MAIL_PASSWORD = env_config('MAIL_PASSWORD')
+    CELERY_BROKER_URL = 'redis://localhost:6379/0'
+    CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
 
 class DevelopmentConfig(Config):
     DEBUG = True

@@ -1,7 +1,6 @@
 from flask import Flask
 from config import config
-from app.routes import routes
-from app.routes.routes import routes  # Importa el blueprint routes correctamente
+from app.routes.routes import routes
 from flask_cors import CORS
 from decouple import config as env_config
 from flask_mail import Mail
