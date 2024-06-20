@@ -503,7 +503,6 @@ def get_gym_status(gym_id):
     try:
         # Conectar a la base de datos y obtener el horario del gimnasio
         conn = get_conection()
-        print("conn desde gym status: " + conn)
         if conn is None:
             return jsonify({"error": "No se pudo conectar a la base de datos"}), 500
         with conn.cursor() as cursor:
