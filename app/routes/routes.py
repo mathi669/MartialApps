@@ -550,7 +550,7 @@ def check_gym_status(horario):
 
 
 @routes.route("/get_users", methods=["GET"])
-# @jwt_required()
+#@jwt_required()
 def get_users():
     try:
         if request.method == "GET":
@@ -572,10 +572,9 @@ def gym_required(f):
 
 
 @routes.route("/get_user/<int:user_id>", methods=["GET"])
-@gym_required
+#@gym_required
 def get_user_by_id(user_id):
     try:
-        # Conectar a la base de datos y llamar al procedimiento almacenado
         conn = get_conection()
         with conn.cursor() as cursor:
             cursor.callproc("sp_ObtenerPerfilUsuario", (user_id,))
@@ -583,7 +582,22 @@ def get_user_by_id(user_id):
         conn.close()
 
         if result:
-            return jsonify(result), 200
+            user_info = {
+                "id": result[0],
+                "nombre": result[1],
+                "correo_electronico": result[2],
+                "telefono": result[3],
+                "fecha_solicitud": result[4],
+                "genero": result[5],
+                "contacto_emergencia": {
+                    "nombre": result[6],
+                    "apellido": result[7],
+                    "email": result[8],
+                    "telefono": result[9],
+                    "relacion": result[10]
+                }
+            }
+            return jsonify(user_info), 200
         else:
             return jsonify({"error": "Usuario no encontrado"}), 404
 
