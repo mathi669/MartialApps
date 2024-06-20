@@ -16,6 +16,7 @@ from flask_jwt_extended import (
 )
 from flask_mail import Mail, Message
 import mysql.connector
+from functools import wraps
 
 routes = Blueprint("routes", __name__)
 mail = Mail()
@@ -71,15 +72,6 @@ def register_gym():
         # Obtener datos del cuerpo de la solicitud
         data = request.get_json()
 
-        # Extraer datos del cuerpo de la solicitud
-        nombre_gimnasio = data.get("nombreGimnasio")
-        correo = data.get("correo")
-        contrasena = data.get("contrasena")
-        telefono = data.get("telefonoGimnasio")
-        ubicacion_gimnasio = data.get("ubicacionGimnasio")
-        descripcion = data.get("descripcion")
-        imagen_base64 = data.get("imagen_base64")  # Nuevo campo para la imagen en base64
-
         # Verificar si todos los campos requeridos están presentes y no son nulos
         required_fields = {
             "nombreGimnasio",
@@ -89,6 +81,7 @@ def register_gym():
             "ubicacionGimnasio",
             "descripcion",
             "imagen_base64",
+            "horario",  # Nuevo campo
         }
         missing_fields = required_fields - set(data.keys())
         if missing_fields:
@@ -101,29 +94,38 @@ def register_gym():
                 400,
             )
 
+        # Extraer datos del cuerpo de la solicitud
+        nombre_gimnasio = data.get("nombreGimnasio")
+        correo = data.get("correo")
+        contrasena = data.get("contrasena")
+        telefono = data.get("telefonoGimnasio")
+        ubicacion_gimnasio = data.get("ubicacionGimnasio")
+        descripcion = data.get("descripcion")
+        imagen_base64 = data.get("imagen_base64")
+        horario = data.get("horario")  # Nuevo campo
+
         # Llamar al método para subir la imagen a ImgBB
         response = upload_image_to_imgbb(imagen_base64)
-        image_url = response.json()["data"]["url"]
-        if not image_url:
+        if response.status_code != 200:
             return jsonify({"error": "Error al cargar la imagen"}), 500
+        
+        image_url = response.json()["data"]["url"]
 
         # Llamar al stored procedure para registrar el gimnasio
         conn = get_conection()
         with conn.cursor() as cursor:
             # Obtener el último ID de la tabla tb_gimnasio
             cursor.execute("SELECT MAX(id) FROM tb_gimnasio")
-            last_id = cursor.fetchone()[0]
+            last_id_row = cursor.fetchone()
+            last_id = last_id_row[0] if last_id_row and last_id_row[0] is not None else 0
             
             # Calcular el nuevo ID sumando 1 al último ID obtenido
             new_id = last_id + 1
             
-            # Definir el horario y la descripción predeterminados
-            horario_predeterminado = "9:00 - 16:00"
-            
             # Insertar el nuevo registro en la tabla tb_gimnasio con el nuevo ID
             cursor.execute(
                 "INSERT INTO tb_gimnasio (id, dc_nombre, dc_correo_electronico, dc_contrasena, dc_telefono, dc_ubicacion, dc_horario, df_fecha_ingreso, dc_descripcion, dc_imagen_url) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s)",
-                (new_id, nombre_gimnasio, correo, contrasena, telefono, ubicacion_gimnasio, horario_predeterminado, descripcion, image_url),
+                (new_id, nombre_gimnasio, correo, contrasena, telefono, ubicacion_gimnasio, horario, descripcion, image_url),
             )
             conn.commit()
 
@@ -138,8 +140,11 @@ def register_gym():
         return jsonify({"mensaje": "Solicitud de registro de gimnasio enviada correctamente"}), 200
 
     except Exception as e:
+        # Registrar el error para la depuración
+        print(f"Error en register_gym: {e}")
         # Devolver error en caso de excepción
         return jsonify({"error": str(e)}), 500
+    
 @routes.route("/register", methods=["POST"])
 def register_user():
     try:
@@ -149,6 +154,7 @@ def register_user():
         # Extraer datos del cuerpo de la solicitud
         correo = data.get("dc_correo_electronico")
         contrasena = data.get("dc_contrasena")
+        
         nombre = data.get("dc_nombre")
         apellido = data.get("dc_apellido")
         telefono = data.get("dc_telefono")
@@ -313,10 +319,35 @@ def create_gym():
 @routes.route("/updateGym/<int:gym_id>", methods=["PUT"])
 def update_gym(gym_id):
     try:
-        # Obtener datos del formulario
-        data = request.form
+        data = request.json  # Usar request.json para obtener los datos en lugar de request.form
         image = request.files.get("image")
         image_url = data.get("dc_imagen_url")
+        
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT dc_nombre, dc_correo_electronico, dc_contrasena, dc_telefono, dc_ubicacion, dc_horario, dc_descripcion, dc_imagen_url, tb_gimnasio_estado_id FROM tb_gimnasio WHERE id = %s", (gym_id,))
+            current_data = cursor.fetchone()
+
+        #Valores predeterminados para cuando se requiera actualizar 1 dato en especifico
+        nombre = data.get("dc_nombre", current_data[0])
+        correo = data.get("dc_correo_electronico", current_data[1])
+        contrasena = data.get("dc_contrasena", current_data[2])
+        telefono = data.get("dc_telefono", current_data[3])
+        ubicacion = data.get("dc_ubicacion", current_data[4])
+        horario = data.get("dc_horario", current_data[5])
+        descripcion = data.get("dc_descripcion", current_data[6])
+        image_url = image_url if image_url else current_data[7]
+        estado_id = int(data.get("tb_gimnasio_estado_id", current_data[8]))
+
+        # Obtener la URL de la imagen existente si no se proporciona una nueva imagen ni una URL
+        if not image and not image_url:
+            conn = get_conection()
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT dc_imagen_url FROM tb_gimnasio WHERE id = %s", (gym_id,))
+                existing_image_url = cursor.fetchone()
+                if existing_image_url:
+                    image_url = existing_image_url[0]
+            conn.close()
 
         # Si se proporciona una nueva imagen, subirla a ImgBB
         if image:
@@ -332,15 +363,16 @@ def update_gym(gym_id):
                 "sp_ActualizarGimnasio",
                 (
                     gym_id,
-                    data.get("dc_nombre"),
-                    data.get("dc_correo_electronico"),
-                    data.get("dc_telefono"),
-                    data.get("dc_ubicacion"),
-                    data.get("dc_horario"),
+                    nombre,
+                    correo,
+                    contrasena,
+                    telefono,
+                    ubicacion,
+                    horario,
                     datetime.now(),  # df_fecha_ingreso
-                    data.get("dc_descripcion"),
+                    descripcion,
                     image_url,
-                    int(data.get("tb_gimnasio_estado_id")),
+                    estado_id,
                 ),
             )
             conn.commit()
@@ -373,6 +405,7 @@ def get_gym(gym_id):
     try:
         # Conectar a la base de datos y llamar al procedimiento almacenado
         conn = get_conection()
+        print("Conectado?, ", conn)
         with conn.cursor() as cursor:
             cursor.callproc("sp_ObtenerGimnasio", (gym_id,))
             result = cursor.fetchone()
@@ -463,6 +496,55 @@ def get_filtered_gyms():
         return jsonify({"gimnasios": formatted_result}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+@routes.route("/gym/<int:gym_id>/status", methods=["GET"])
+def get_gym_status(gym_id):
+    conn = None
+    try:
+        # Conectar a la base de datos y obtener el horario del gimnasio
+        conn = get_conection()
+        print("conn desde gym status: " + conn)
+        if conn is None:
+            return jsonify({"error": "No se pudo conectar a la base de datos"}), 500
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT dc_horario FROM tb_gimnasio WHERE id = %s", (gym_id,))
+            result = cursor.fetchone()
+
+        if result:
+            horario = result[0]
+            print("result: " + horario)
+            status = check_gym_status(horario)
+            return jsonify({"status": status}), 200
+        else:
+            return jsonify({"error": "Gimnasio no encontrado"}), 404
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+def check_gym_status(horario):
+    try:
+        # Eliminar espacios innecesarios
+        horario = horario.replace(" ", "")
+        
+        # Suponiendo que el formato del horario es "HH:MM-HH:MM"
+        open_time_str, close_time_str = horario.split('-')
+        open_time = datetime.strptime(open_time_str, '%H:%M').time()
+        close_time = datetime.strptime(close_time_str, '%H:%M').time()
+
+        # Obtener la hora actual
+        now = datetime.now().time()
+
+        # Comparar la hora actual con el horario del gimnasio
+        if open_time <= now <= close_time:
+            return "abierto"
+        else:
+            return "cerrado"
+    except Exception as e:
+        return str(e)  # Para facilitar la depuración, devolver el mensaje de error
+    
 
 
 """User routes"""
@@ -479,22 +561,56 @@ def get_users():
             return jsonify({"error": "Método no permitido"}), 405
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+def gym_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user_role = request.headers.get('X-User-Role')  # Asumiendo que el rol del usuario viene en los headers
+        if user_role != 'gym':
+            return jsonify({"error": "Acceso no autorizado"}), 403
+        return f(*args, **kwargs)
+    return decorated_function
 
 
 @routes.route("/get_user/<int:user_id>", methods=["GET"])
+@gym_required
 def get_user_by_id(user_id):
     try:
-        if request.method == "GET":
-            user = ModelUser.get_user_by_id(user_id)
-            if user:
-                return jsonify(user), 200
-            else:
-                return jsonify({"error": "Usuario no encontrado"}), 404
+        # Conectar a la base de datos y llamar al procedimiento almacenado
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.callproc("sp_ObtenerPerfilUsuario", (user_id,))
+            result = cursor.fetchone()
+        conn.close()
+
+        if result:
+            return jsonify(result), 200
         else:
-            return jsonify({"error": "Método no permitido"}), 405
+            return jsonify({"error": "Usuario no encontrado"}), 404
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@routes.route("/search_users", methods=["GET"])
+def search_users():
+    query = request.args.get('query')
+    if not query:
+        return jsonify({"error": "No query provided"}), 400
+    
+    try:
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM tb_usuario WHERE dc_nombre LIKE %s", (f"%{query}%",))
+            results = cursor.fetchall()
+        conn.close()
+
+        if results:
+            return jsonify(results), 200
+        else:
+            return jsonify({"error": "No se encontraron usuarios"}), 404
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @routes.route("/delete_user/<int:user_id>", methods=["DELETE"])
 def delete_user(user_id):
@@ -723,8 +839,7 @@ def change_password():
         return jsonify({"error": str(e)}), 500
 
 
-from flask import request, jsonify
-from datetime import timedelta
+
 from flask import request, jsonify
 from datetime import timedelta
 
@@ -736,8 +851,8 @@ def create_class():
         data = request.get_json()
 
         # Log para imprimir los datos recibidos
-        print("Datos recibidos:")
-        print(data)
+        # print("Datos recibidos:")
+        # print(data)
 
         # Validar datos requeridos
         required_fields = {
@@ -822,6 +937,8 @@ def create_class():
             cursor.close()
         if conn:
             conn.close()
+            
+
 
 
 
@@ -1300,3 +1417,68 @@ def handle_class_comments(class_id):
             return jsonify({"comments": comments}), 200
         except Exception as e:
             return jsonify({"error": str(e)}), 500
+        
+# Recomend gym
+@routes.route("/recommendations", methods=["POST"])
+def recommend_gym():
+    try:
+        data = request.get_json()
+        gym_id = data.get("gymId")
+        user_id = data.get("userId")
+        fecha_recomendacion = datetime.now()
+
+        if not gym_id or not user_id:
+            return jsonify({"error": "Missing gymId or userId"}), 400
+
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO tb_recommendations (usuario_id, gimnasio_id, fecha_recomendacion) VALUES (%s, %s, %s)",
+                (user_id, gym_id, fecha_recomendacion)
+            )
+            conn.commit()
+        
+        # Obtener el correo electrónico del gimnasio
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT dc_correo_electronico FROM tb_gimnasio WHERE id = %s", (gym_id,))
+            gym_email = cursor.fetchone()[0]
+        
+        conn.close()
+
+        # Enviar notificación de recomendación por correo
+        send_recommendation_email(gym_email)
+
+        return jsonify({"message": "Gimnasio recomendado exitosamente"}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+@routes.route("/recommendations/count/<int:gym_id>", methods=["GET"])
+def get_recommendation_count(gym_id):
+    try:
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM tb_recommendations WHERE gimnasio_id = %s", (gym_id,))
+            count = cursor.fetchone()[0]
+        conn.close()
+        return jsonify({"recommendation_count": count}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Función para enviar un correo de notificación
+def send_recommendation_email(gym_email):
+    try:
+        msg = Message("Nueva Recomendación de Gimnasio",
+                      sender=current_app.config['MAIL_USERNAME'],
+                      recipients=[gym_email])
+        msg.body = "¡Felicidades! Tu gimnasio ha sido recomendado por un usuario."
+        thr = Thread(target=send_async_email, args=[current_app._get_current_object(), msg])
+        thr.start()
+    except Exception as e:
+        print(f"Error al enviar el correo: {e}")
+
+def send_async_email(app, msg):
+    with app.app_context():
+        try:
+            mail.send(msg)
+        except Exception as e:
+            print(f"Error al enviar el correo: {e}")
