@@ -937,10 +937,6 @@ def create_class():
         if conn:
             conn.close()
             
-
-
-
-
 @routes.route("/getAdditionalInfo", methods=["GET"])
 def get_additional_info():
     conn = get_conection()
@@ -1016,7 +1012,7 @@ def get_classes():
         return jsonify({"error": str(e)}), 500
 
 
-@routes.route("/update_class/<int:class_id>", methods=["PUT"])
+@routes.route("/update_class/<int:class_id>", methods=["POST"])
 def update_class(class_id):
     try:
         data = request.get_json()
@@ -1030,7 +1026,6 @@ def update_class(class_id):
                     data["dc_nombre_clase"],
                     data["dc_horario"],
                     data["nb_cupos_disponibles"],
-                    data["id_categoria"],
                     data["df_fecha"],
                     data["df_hora"],
                     data["tb_clase_estado_id"],
@@ -1046,6 +1041,7 @@ def update_class(class_id):
         return jsonify({"mensaje": "Clase actualizada correctamente"}), 200
 
     except Exception as e:
+        
         return jsonify({"error": str(e)}), 500
 
 
