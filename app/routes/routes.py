@@ -1491,3 +1491,214 @@ def send_async_email(app, msg):
             mail.send(msg)
         except Exception as e:
             print(f"Error al enviar el correo: {e}")
+
+
+@routes.route("/reportUser", methods=["POST"])
+def report_user():
+    try:
+        data = request.get_json()
+
+        reportado_id = data.get("user_id")
+        reporter_id = data.get("reporter_id")
+        reporter_type = data.get("reporter_type")
+        report_reason = data.get("reason")
+        report_details = data.get("details")
+
+        conn = get_conection() 
+        with conn.cursor() as cursor:
+            cursor.callproc(
+                "sp_ReporteUsuario",
+                (
+                    reportado_id,
+                    reporter_id,
+                    reporter_type,
+                    report_reason,
+                    report_details,
+                ),
+            )
+            conn.commit()
+
+        conn.close()
+
+        return jsonify({"mensaje": "Reporte enviado correctamente"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Aceptar reporte de usuario
+@routes.route('/acceptReport/<int:report_id>', methods=['POST'])
+def accept_report(report_id):
+    if request.method == 'POST':
+        data = request.get_json()
+        reporter_id = data.get("reporter_id")
+        try:
+            # Actualizar estado del usuario reportado a inactivo y marcar como reportado
+            update_query = """
+                UPDATE tb_usuario
+                SET tb_usuario_estado_id = 2, usuario_reportado = 1
+                WHERE id = %s
+            """
+            # Establecer conexión y ejecutar la consulta de actualización
+            conn = get_conection()
+            cursor = conn.cursor()
+            cursor.execute(update_query, (reporter_id,))
+            conn.commit()
+
+            # Verificar si se actualizó algún registro
+            if cursor.rowcount == 0:
+                return jsonify({"error": f"No se encontró ningún usuario con id {reporter_id}"}), 404
+
+            # Consulta para obtener correo electrónico y nombre del reportador
+            reportador_info_query = """
+                SELECT dc_correo_electronico, dc_nombre FROM tb_usuario WHERE id = %s
+            """
+            cursor.execute(reportador_info_query, (reporter_id,))
+            result = cursor.fetchone()
+
+            # Verificar si se encontraron resultados
+            if not result:
+                return jsonify({"error": f"No se encontró ningún usuario con id {reporter_id}"}), 404
+
+            reportador_email, reportador_name = result
+
+            # Construir y enviar correo con plantilla HTML
+            asunto = "Suspensión de Usuario Reportado"
+            cuerpo_html = f"""
+                <html>
+                    <body style="font-family: Arial, sans-serif; margin: 0; padding: 0;">
+                        <div style="background-color: #f4f4f4; padding: 20px;">
+                            <div style="max-width: 600px; background-color: #ffffff; margin: auto; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                                <h2 style="color: #333;">Suspensión de Usuario Reportado</h2>
+                                <p>Estimado {reportador_name},</p>
+                                <p>Le informamos que su cuenta ha sido suspendida debido a reportes.</p>
+                                <p>Atentamente,<br>Equipo de Administración</p>
+                            </div>
+                        </div>
+                    </body>
+                </html>
+            """
+
+            # Enviar correo de manera asíncrona
+            enviar_correo(reportador_email, asunto, cuerpo_html)
+
+            # Cerrar conexión
+            cursor.close()
+            conn.close()
+
+            return jsonify({"message": "Report accepted and email sent"}), 200
+
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    return jsonify({"error": "Method not allowed"}), 405
+
+# Rechazar reporte de usuario
+@routes.route('/rejectReport/<int:report_id>', methods=['POST'])
+def reject_report(report_id):
+    if request.method == 'POST':
+        data = request.get_json()
+        reporter_id = data.get('reporter_id')
+        reject_reason = data.get('reject_reason')
+
+        if not reporter_id or not reject_reason:
+            return jsonify({"error": "Missing reporter_id or reject_reason"}), 400
+
+        try:
+            # Consulta para obtener correo electrónico y nombre del reportador
+            reportador_info_query = """
+                SELECT dc_correo_electronico, dc_nombre FROM tb_gimnasio WHERE id = %s
+            """
+            # Establecer conexión y ejecutar la consulta
+            conn = get_conection()
+            cursor = conn.cursor()
+            cursor.execute(reportador_info_query, (reporter_id,))
+            result = cursor.fetchone()
+
+            # Verificar si se encontraron resultados
+            if not result:
+                return jsonify({"error": f"No se encontró ningún usuario con id {reporter_id}"}), 404
+
+            reportador_email, reportador_name = result
+
+            # Construir y enviar correo con plantilla HTML
+            asunto = "Desistimiento de Suspensión de Usuario Reportado"
+            cuerpo_html = f"""
+                <html>
+                    <body style="font-family: Arial, sans-serif; margin: 0; padding: 0;">
+                        <div style="background-color: #f4f4f4; padding: 20px;">
+                            <div style="max-width: 600px; background-color: #ffffff; margin: auto; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                                <h2 style="color: #333;">Desistimiento de Suspensión de Usuario Reportado</h2>
+                                <p>Estimado {reportador_name},</p>
+                                <p>Le informamos que se ha desistido de la suspensión del usuario reportado.</p>
+                                <p>Motivo del desistimiento: {reject_reason}</p>
+                                <p>Atentamente,<br>Equipo de Administración</p>
+                            </div>
+                        </div>
+                    </body>
+                </html>
+            """
+
+            # Enviar correo de manera asíncrona
+            enviar_correo(reportador_email, asunto, cuerpo_html)
+
+            # Cerrar conexión
+            cursor.close()
+            conn.close()
+
+            return jsonify({"message": "Report rejected and email sent"}), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    return jsonify({"error": "Method not allowed"}), 405
+
+    # Endpoint para obtener todos los reportes de usuarios
+@routes.route('/pendingReports', methods=['GET'])
+def get_reports():
+    try:
+        # Establecer conexión y obtener cursor
+        conn = get_conection()
+        cursor = conn.cursor()
+
+        # Consulta SQL para obtener todos los reportes
+        query = """
+            SELECT
+                ru.id AS report_id,
+                ru.user_id,
+                u.dc_nombre AS user_name,
+                ru.reporter_id,
+                ru.reporter_type,
+                ru.reason AS report_reason,
+                ru.details AS report_details,
+                ru.created_at AS report_created_at
+            FROM reportes_usuario ru
+            JOIN tb_usuario u ON ru.user_id = u.id
+            ORDER BY ru.created_at DESC
+        """
+
+        # Ejecutar la consulta
+        cursor.execute(query)
+
+        # Obtener todos los reportes
+        reports = []
+        for row in cursor.fetchall():
+            report = {
+                "report_id": row[0],
+                "user_id": row[1],
+                "user_name": row[2],
+                "reporter_id": row[3],
+                "reporter_type": row[4],
+                "report_reason": row[5],
+                "report_details": row[6],
+                "report_created_at": row[7].isoformat()  # Convertir a formato ISO para ser JSON serializable
+            }
+            reports.append(report)
+
+        # Cerrar cursor y conexión
+        cursor.close()
+        conn.close()
+
+        # Devolver los reportes como JSON
+        return jsonify({"reports": reports}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
