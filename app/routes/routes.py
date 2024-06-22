@@ -454,8 +454,9 @@ def get_all_gyms():
                 ),  # Convertir fecha a formato ISO
                 "descripcion": row[7],
                 "imagen_url": row[8],
-                "estado_id": row[9],
+                "tb_gimnasio_estado_id": row[9],
             }
+            gimnasio["status"] = check_gym_status(row[5])
             gimnasios.append(gimnasio)
 
         return (
