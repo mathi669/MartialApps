@@ -17,6 +17,8 @@ from flask_jwt_extended import (
 from flask_mail import Mail, Message
 import mysql.connector
 from functools import wraps
+from apscheduler.schedulers.background import BackgroundScheduler
+
 
 routes = Blueprint("routes", __name__)
 mail = Mail()
@@ -27,6 +29,8 @@ jwt = JWTManager()
 
 # Configuración de la API de ImgBB
 IMG_API_KEY = config("IMG_BB_KEY")
+
+scheduler = BackgroundScheduler()
 
 
 # Función para subir imagen a ImgBB
@@ -81,7 +85,8 @@ def register_gym():
             "ubicacionGimnasio",
             "descripcion",
             "imagen_base64",
-            "horario",  # Nuevo campo
+            "horario",
+            "redSocial",
         }
         missing_fields = required_fields - set(data.keys())
         if missing_fields:
@@ -102,7 +107,8 @@ def register_gym():
         ubicacion_gimnasio = data.get("ubicacionGimnasio")
         descripcion = data.get("descripcion")
         imagen_base64 = data.get("imagen_base64")
-        horario = data.get("horario")  # Nuevo campo
+        horario = data.get("horario") 
+        red_social = data.get("redSocial")
 
         # Llamar al método para subir la imagen a ImgBB
         response = upload_image_to_imgbb(imagen_base64)
@@ -124,8 +130,8 @@ def register_gym():
             
             # Insertar el nuevo registro en la tabla tb_gimnasio con el nuevo ID
             cursor.execute(
-                "INSERT INTO tb_gimnasio (id, dc_nombre, dc_correo_electronico, dc_contrasena, dc_telefono, dc_ubicacion, dc_horario, df_fecha_ingreso, dc_descripcion, dc_imagen_url) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s)",
-                (new_id, nombre_gimnasio, correo, contrasena, telefono, ubicacion_gimnasio, horario, descripcion, image_url),
+                "INSERT INTO tb_gimnasio (id, dc_nombre, dc_correo_electronico, dc_contrasena, dc_telefono, dc_ubicacion, dc_horario, df_fecha_ingreso, dc_descripcion, dc_imagen_url, dc_red_social) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, %s)",
+                (new_id, nombre_gimnasio, correo, contrasena, telefono, ubicacion_gimnasio, horario, descripcion, image_url, red_social),
             )
             conn.commit()
 
@@ -319,16 +325,15 @@ def create_gym():
 @routes.route("/updateGym/<int:gym_id>", methods=["PUT"])
 def update_gym(gym_id):
     try:
-        data = request.json  # Usar request.json para obtener los datos en lugar de request.form
+        data = request.json
         image = request.files.get("image")
         image_url = data.get("dc_imagen_url")
         
         conn = get_conection()
         with conn.cursor() as cursor:
-            cursor.execute("SELECT dc_nombre, dc_correo_electronico, dc_contrasena, dc_telefono, dc_ubicacion, dc_horario, dc_descripcion, dc_imagen_url, tb_gimnasio_estado_id FROM tb_gimnasio WHERE id = %s", (gym_id,))
+            cursor.execute("SELECT dc_nombre, dc_correo_electronico, dc_contrasena, dc_telefono, dc_ubicacion, dc_horario, dc_descripcion, dc_imagen_url, tb_gimnasio_estado_id, dc_red_social FROM tb_gimnasio WHERE id = %s", (gym_id,))
             current_data = cursor.fetchone()
 
-        #Valores predeterminados para cuando se requiera actualizar 1 dato en especifico
         nombre = data.get("dc_nombre", current_data[0])
         correo = data.get("dc_correo_electronico", current_data[1])
         contrasena = data.get("dc_contrasena", current_data[2])
@@ -338,8 +343,8 @@ def update_gym(gym_id):
         descripcion = data.get("dc_descripcion", current_data[6])
         image_url = image_url if image_url else current_data[7]
         estado_id = int(data.get("tb_gimnasio_estado_id", current_data[8]))
+        redSocial = data.get("dc_red_social", current_data[9])
 
-        # Obtener la URL de la imagen existente si no se proporciona una nueva imagen ni una URL
         if not image and not image_url:
             conn = get_conection()
             with conn.cursor() as cursor:
@@ -349,14 +354,12 @@ def update_gym(gym_id):
                     image_url = existing_image_url[0]
             conn.close()
 
-        # Si se proporciona una nueva imagen, subirla a ImgBB
         if image:
             response = upload_image_to_imgbb(image)
             if not response.ok:
                 return jsonify({"error": "Failed to upload image"}), 500
             image_url = response.json()["data"]["url"]
 
-        # Conectar a la base de datos y llamar al procedimiento almacenado
         conn = get_conection()
         with conn.cursor() as cursor:
             cursor.callproc(
@@ -369,20 +372,33 @@ def update_gym(gym_id):
                     telefono,
                     ubicacion,
                     horario,
-                    datetime.now(),  # df_fecha_ingreso
+                    datetime.now(),
                     descripcion,
                     image_url,
                     estado_id,
+                    redSocial
                 ),
             )
             conn.commit()
+
+            # Obtener los correos de los usuarios inscritos
+            cursor.execute("""
+                SELECT u.dc_correo_electronico, u.dc_telefono
+                FROM tb_solicitud_reserva r
+                JOIN tb_usuario u ON r.tb_usuario_id = u.id
+                WHERE r.tb_gimnasio_id = %s
+            """, (gym_id,))
+            usuarios = cursor.fetchall()
+
         conn.close()
 
-        return jsonify({"mensaje": "Gimnasio actualizado correctamente"}), 200
+        for usuario in usuarios:
+            enviar_correo(usuario[0], "Actualización del Gimnasio", "Los detalles del gimnasio han sido actualizados.")
+
+        return jsonify({"mensaje": "Gimnasio actualizado correctamente y notificaciones enviadas"}), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 
 @routes.route("/deleteGym/<int:gym_id>", methods=["DELETE"])
 def delete_gym(gym_id):
@@ -1491,3 +1507,373 @@ def send_async_email(app, msg):
             mail.send(msg)
         except Exception as e:
             print(f"Error al enviar el correo: {e}")
+
+
+@routes.route("/reportUser", methods=["POST"])
+def report_user():
+    try:
+        data = request.get_json()
+
+        reportado_id = data.get("user_id")
+        reporter_id = data.get("reporter_id")
+        reporter_type = data.get("reporter_type")
+        report_reason = data.get("reason")
+        report_details = data.get("details")
+
+        conn = get_conection() 
+        with conn.cursor() as cursor:
+            cursor.callproc(
+                "sp_ReporteUsuario",
+                (
+                    reportado_id,
+                    reporter_id,
+                    reporter_type,
+                    report_reason,
+                    report_details,
+                ),
+            )
+            conn.commit()
+
+        conn.close()
+
+        return jsonify({"mensaje": "Reporte enviado correctamente"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Aceptar reporte de usuario
+@routes.route('/acceptReport/<int:report_id>', methods=['POST'])
+def accept_report(report_id):
+    if request.method == 'POST':
+        data = request.get_json()
+        reporter_id = data.get("reporter_id")
+        try:
+            # Actualizar estado del usuario reportado a inactivo y marcar como reportado
+            update_query = """
+                UPDATE tb_usuario
+                SET tb_usuario_estado_id = 2, usuario_reportado = 1
+                WHERE id = %s
+            """
+            # Establecer conexión y ejecutar la consulta de actualización
+            conn = get_conection()
+            cursor = conn.cursor()
+            cursor.execute(update_query, (reporter_id,))
+            conn.commit()
+
+            # Verificar si se actualizó algún registro
+            if cursor.rowcount == 0:
+                return jsonify({"error": f"No se encontró ningún usuario con id {reporter_id}"}), 404
+
+            # Consulta para obtener correo electrónico y nombre del reportador
+            reportador_info_query = """
+                SELECT dc_correo_electronico, dc_nombre FROM tb_usuario WHERE id = %s
+            """
+            cursor.execute(reportador_info_query, (reporter_id,))
+            result = cursor.fetchone()
+
+            # Verificar si se encontraron resultados
+            if not result:
+                return jsonify({"error": f"No se encontró ningún usuario con id {reporter_id}"}), 404
+
+            reportador_email, reportador_name = result
+
+            # Construir y enviar correo con plantilla HTML
+            asunto = "Suspensión de Usuario Reportado"
+            cuerpo_html = f"""
+                <html>
+                    <body style="font-family: Arial, sans-serif; margin: 0; padding: 0;">
+                        <div style="background-color: #f4f4f4; padding: 20px;">
+                            <div style="max-width: 600px; background-color: #ffffff; margin: auto; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                                <h2 style="color: #333;">Suspensión de Usuario Reportado</h2>
+                                <p>Estimado {reportador_name},</p>
+                                <p>Le informamos que su cuenta ha sido suspendida debido a reportes.</p>
+                                <p>Atentamente,<br>Equipo de Administración</p>
+                            </div>
+                        </div>
+                    </body>
+                </html>
+            """
+
+            # Enviar correo de manera asíncrona
+            enviar_correo(reportador_email, asunto, cuerpo_html)
+
+            # Cerrar conexión
+            cursor.close()
+            conn.close()
+
+            return jsonify({"message": "Report accepted and email sent"}), 200
+
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    return jsonify({"error": "Method not allowed"}), 405
+
+# Rechazar reporte de usuario
+@routes.route('/rejectReport/<int:report_id>', methods=['POST'])
+def reject_report(report_id):
+    if request.method == 'POST':
+        data = request.get_json()
+        reporter_id = data.get('reporter_id')
+        reject_reason = data.get('reject_reason')
+
+        if not reporter_id or not reject_reason:
+            return jsonify({"error": "Missing reporter_id or reject_reason"}), 400
+
+        try:
+            # Consulta para obtener correo electrónico y nombre del reportador
+            reportador_info_query = """
+                SELECT dc_correo_electronico, dc_nombre FROM tb_gimnasio WHERE id = %s
+            """
+            # Establecer conexión y ejecutar la consulta
+            conn = get_conection()
+            cursor = conn.cursor()
+            cursor.execute(reportador_info_query, (reporter_id,))
+            result = cursor.fetchone()
+
+            # Verificar si se encontraron resultados
+            if not result:
+                return jsonify({"error": f"No se encontró ningún usuario con id {reporter_id}"}), 404
+
+            reportador_email, reportador_name = result
+
+            # Construir y enviar correo con plantilla HTML
+            asunto = "Desistimiento de Suspensión de Usuario Reportado"
+            cuerpo_html = f"""
+                <html>
+                    <body style="font-family: Arial, sans-serif; margin: 0; padding: 0;">
+                        <div style="background-color: #f4f4f4; padding: 20px;">
+                            <div style="max-width: 600px; background-color: #ffffff; margin: auto; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                                <h2 style="color: #333;">Desistimiento de Suspensión de Usuario Reportado</h2>
+                                <p>Estimado {reportador_name},</p>
+                                <p>Le informamos que se ha desistido de la suspensión del usuario reportado.</p>
+                                <p>Motivo del desistimiento: {reject_reason}</p>
+                                <p>Atentamente,<br>Equipo de Administración</p>
+                            </div>
+                        </div>
+                    </body>
+                </html>
+            """
+
+            # Enviar correo de manera asíncrona
+            enviar_correo(reportador_email, asunto, cuerpo_html)
+
+            # Cerrar conexión
+            cursor.close()
+            conn.close()
+
+            return jsonify({"message": "Report rejected and email sent"}), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    return jsonify({"error": "Method not allowed"}), 405
+
+    # Endpoint para obtener todos los reportes de usuarios
+@routes.route('/pendingReports', methods=['GET'])
+def get_reports():
+    try:
+        # Establecer conexión y obtener cursor
+        conn = get_conection()
+        cursor = conn.cursor()
+
+        # Consulta SQL para obtener todos los reportes
+        query = """
+            SELECT
+                ru.id AS report_id,
+                ru.user_id,
+                u.dc_nombre AS user_name,
+                ru.reporter_id,
+                ru.reporter_type,
+                ru.reason AS report_reason,
+                ru.details AS report_details,
+                ru.created_at AS report_created_at
+            FROM reportes_usuario ru
+            JOIN tb_usuario u ON ru.user_id = u.id
+            ORDER BY ru.created_at DESC
+        """
+
+        # Ejecutar la consulta
+        cursor.execute(query)
+
+        # Obtener todos los reportes
+        reports = []
+        for row in cursor.fetchall():
+            report = {
+                "report_id": row[0],
+                "user_id": row[1],
+                "user_name": row[2],
+                "reporter_id": row[3],
+                "reporter_type": row[4],
+                "report_reason": row[5],
+                "report_details": row[6],
+                "report_created_at": row[7].isoformat()  # Convertir a formato ISO para ser JSON serializable
+            }
+            reports.append(report)
+
+        # Cerrar cursor y conexión
+        cursor.close()
+        conn.close()
+
+        # Devolver los reportes como JSON
+        return jsonify({"reports": reports}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+@routes.route("/favorites", methods=["POST"])
+def add_favorite():
+    try:
+        data = request.get_json()
+        user_id = data.get("userId")
+        gym_id = data.get("gymId")
+
+        if not user_id or not gym_id:
+            return jsonify({"error": "Missing userId or gymId"}), 400
+
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            # Verificar si la relación usuario-gimnasio ya existe
+            cursor.execute(
+                "SELECT * FROM tb_favoritos WHERE usuario_id = %s AND gimnasio_id = %s",
+                (user_id, gym_id)
+            )
+            existing_favorite = cursor.fetchone()
+
+            if existing_favorite:
+                return jsonify({"message": "Gimnasio ya está en favoritos", "color": "error"}), 200
+
+            # Si no existe, insertar la nueva relación
+            cursor.execute(
+                "INSERT INTO tb_favoritos (usuario_id, gimnasio_id) VALUES (%s, %s)",
+                (user_id, gym_id)
+            )
+            conn.commit()
+        conn.close()
+
+        return jsonify({"message": "Gimnasio agregado a favoritos", "color": "success"}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@routes.route("/favorites", methods=["DELETE"])
+def remove_favorite():
+    try:
+        data = request.get_json()
+        user_id = data.get("userId")
+        gym_id = data.get("gymId")
+
+        if not user_id or not gym_id:
+            return jsonify({"error": "Missing userId or gymId"}), 400
+
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM tb_favoritos WHERE usuario_id = %s AND gimnasio_id = %s",
+                (user_id, gym_id)
+            )
+            conn.commit()
+        conn.close()
+
+        return jsonify({"message": "Gimnasio eliminado de favoritos"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@routes.route("/favorites/<int:user_id>", methods=["GET"])
+def get_favorites(user_id):
+    try:
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT g.id, g.dc_nombre, g.dc_ubicacion, g.dc_imagen_url FROM tb_favoritos f JOIN tb_gimnasio g ON f.gimnasio_id = g.id WHERE f.usuario_id = %s",
+                (user_id,)
+            )
+            result = cursor.fetchall()
+        conn.close()
+
+        favorites = [{"id": row[0], "nombre": row[1], "ubicacion": row[2], "imagen_url": row[3]} for row in result]
+        return jsonify({"favorites": favorites}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+        """Programacion de recordatorios y demas"""
+
+def send_reminder():
+    conn = mysql.connector.connect(user='tu_usuario', password='tu_contraseña', host='localhost', database='tu_base_de_datos')
+    cursor = conn.cursor()
+
+    # Selecciona las reservas para mañana y obtén el correo del usuario
+    query = """
+        SELECT u.dc_correo_electronico
+        FROM tb_solicitud_reserva r
+        JOIN tb_usuario u ON r.tb_usuario_id = u.id
+        WHERE r.df_fecha = %s
+    """
+    cursor.execute(query, (datetime.now().date() + timedelta(days=1),))
+
+    for (dc_correo_electronico,) in cursor:
+        enviar_correo(dc_correo_electronico, "Recordatorio de Reserva", "Tienes una reserva para mañana.")
+
+    cursor.close()
+    conn.close()
+
+# Programa la tarea de recordatorio para que se ejecute diariamente
+scheduler.add_job(send_reminder, 'interval', days=1)
+scheduler.start()
+
+
+
+def send_scheduled_reminder(app, data):
+    with app.app_context():
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT dc_correo_electronico, dc_telefono FROM tb_usuario WHERE id = %s", (data['id_usuario'],))
+            usuario = cursor.fetchone()
+        conn.close()
+        
+        email_body = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6;">
+                <div style="max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                    <h2 style="text-align: center; color: #007BFF;">Recordatorio de Entrenamiento</h2>
+                    <p>Hola,</p>
+                    <p>Este es un recordatorio para tu próxima sesión de entrenamiento.</p>
+                    <p><strong>Fecha:</strong> {data['fecha']}</p>
+                    <p><strong>Hora:</strong> {data['hora']}</p>
+                    <p><strong>Mensaje:</strong> {data['mensaje']}</p>
+                    <p>Esperamos que disfrutes de tu entrenamiento y logres todos tus objetivos.</p>
+                    <p>Gracias por confiar en nosotros.</p>
+                    <div style="text-align: center; margin-top: 20px;">
+                        <img src="https://i.ibb.co/Wfv1md5/martiallogo.jpg" alt="MartialApps" style="width: 150px;">
+                    </div>
+                    <p style="text-align: center; margin-top: 20px; font-size: 0.9em; color: #555;">
+                        &copy; {datetime.now().year} MartialApps. Todos los derechos reservados.
+                    </p>
+                </div>
+            </body>
+        </html>
+        """
+        
+        enviar_correo(usuario[0], "Recordatorio de Entrenamiento", email_body)
+        # enviar_whatsapp(usuario[1], data['mensaje'])
+
+@routes.route('/schedule_reminder', methods=['POST'])
+def schedule_reminder():
+    data = request.json
+    conn = get_conection()
+    with conn.cursor() as cursor:
+        cursor.callproc("sp_ProgramarRecordatorio", (
+            data['id_usuario'], 
+            data['fecha'], 
+            data['hora'], 
+            data['mensaje']
+        ))
+        conn.commit()
+
+    conn.close()
+
+    # Obtener la instancia de la aplicación actual
+    app = current_app._get_current_object()
+
+    reminder_time = datetime.strptime(data['fecha'] + ' ' + data['hora'], '%Y-%m-%d %H:%M:%S')
+    scheduler.add_job(send_scheduled_reminder, 'date', run_date=reminder_time, args=[app, data])
+
+    return "Recordatorio programado", 200
