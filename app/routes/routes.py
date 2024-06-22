@@ -82,6 +82,7 @@ def register_gym():
             "descripcion",
             "imagen_base64",
             "horario",  # Nuevo campo
+            "redSocial",
         }
         missing_fields = required_fields - set(data.keys())
         if missing_fields:
