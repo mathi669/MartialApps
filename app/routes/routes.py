@@ -1702,3 +1702,78 @@ def get_reports():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+@routes.route("/favorites", methods=["POST"])
+def add_favorite():
+    try:
+        data = request.get_json()
+        user_id = data.get("userId")
+        gym_id = data.get("gymId")
+
+        if not user_id or not gym_id:
+            return jsonify({"error": "Missing userId or gymId"}), 400
+
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            # Verificar si la relación usuario-gimnasio ya existe
+            cursor.execute(
+                "SELECT * FROM tb_favoritos WHERE usuario_id = %s AND gimnasio_id = %s",
+                (user_id, gym_id)
+            )
+            existing_favorite = cursor.fetchone()
+
+            if existing_favorite:
+                return jsonify({"message": "Gimnasio ya está en favoritos", "color": "error"}), 200
+
+            # Si no existe, insertar la nueva relación
+            cursor.execute(
+                "INSERT INTO tb_favoritos (usuario_id, gimnasio_id) VALUES (%s, %s)",
+                (user_id, gym_id)
+            )
+            conn.commit()
+        conn.close()
+
+        return jsonify({"message": "Gimnasio agregado a favoritos", "color": "success"}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@routes.route("/favorites", methods=["DELETE"])
+def remove_favorite():
+    try:
+        data = request.get_json()
+        user_id = data.get("userId")
+        gym_id = data.get("gymId")
+
+        if not user_id or not gym_id:
+            return jsonify({"error": "Missing userId or gymId"}), 400
+
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM tb_favoritos WHERE usuario_id = %s AND gimnasio_id = %s",
+                (user_id, gym_id)
+            )
+            conn.commit()
+        conn.close()
+
+        return jsonify({"message": "Gimnasio eliminado de favoritos"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@routes.route("/favorites/<int:user_id>", methods=["GET"])
+def get_favorites(user_id):
+    try:
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT g.id, g.dc_nombre, g.dc_ubicacion, g.dc_imagen_url FROM tb_favoritos f JOIN tb_gimnasio g ON f.gimnasio_id = g.id WHERE f.usuario_id = %s",
+                (user_id,)
+            )
+            result = cursor.fetchall()
+        conn.close()
+
+        favorites = [{"id": row[0], "nombre": row[1], "ubicacion": row[2], "imagen_url": row[3]} for row in result]
+        return jsonify({"favorites": favorites}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
