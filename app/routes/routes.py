@@ -85,7 +85,8 @@ def register_gym():
             "ubicacionGimnasio",
             "descripcion",
             "imagen_base64",
-            "horario",  # Nuevo campo
+            "horario",
+            "redSocial",
         }
         missing_fields = required_fields - set(data.keys())
         if missing_fields:
@@ -106,7 +107,8 @@ def register_gym():
         ubicacion_gimnasio = data.get("ubicacionGimnasio")
         descripcion = data.get("descripcion")
         imagen_base64 = data.get("imagen_base64")
-        horario = data.get("horario")  # Nuevo campo
+        horario = data.get("horario") 
+        red_social = data.get("redSocial")
 
         # Llamar al método para subir la imagen a ImgBB
         response = upload_image_to_imgbb(imagen_base64)
@@ -128,8 +130,8 @@ def register_gym():
             
             # Insertar el nuevo registro en la tabla tb_gimnasio con el nuevo ID
             cursor.execute(
-                "INSERT INTO tb_gimnasio (id, dc_nombre, dc_correo_electronico, dc_contrasena, dc_telefono, dc_ubicacion, dc_horario, df_fecha_ingreso, dc_descripcion, dc_imagen_url) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s)",
-                (new_id, nombre_gimnasio, correo, contrasena, telefono, ubicacion_gimnasio, horario, descripcion, image_url),
+                "INSERT INTO tb_gimnasio (id, dc_nombre, dc_correo_electronico, dc_contrasena, dc_telefono, dc_ubicacion, dc_horario, df_fecha_ingreso, dc_descripcion, dc_imagen_url, dc_red_social) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, %s)",
+                (new_id, nombre_gimnasio, correo, contrasena, telefono, ubicacion_gimnasio, horario, descripcion, image_url, red_social),
             )
             conn.commit()
 
@@ -329,7 +331,7 @@ def update_gym(gym_id):
         
         conn = get_conection()
         with conn.cursor() as cursor:
-            cursor.execute("SELECT dc_nombre, dc_correo_electronico, dc_contrasena, dc_telefono, dc_ubicacion, dc_horario, dc_descripcion, dc_imagen_url, tb_gimnasio_estado_id FROM tb_gimnasio WHERE id = %s", (gym_id,))
+            cursor.execute("SELECT dc_nombre, dc_correo_electronico, dc_contrasena, dc_telefono, dc_ubicacion, dc_horario, dc_descripcion, dc_imagen_url, tb_gimnasio_estado_id, dc_red_social FROM tb_gimnasio WHERE id = %s", (gym_id,))
             current_data = cursor.fetchone()
 
         nombre = data.get("dc_nombre", current_data[0])
@@ -341,6 +343,7 @@ def update_gym(gym_id):
         descripcion = data.get("dc_descripcion", current_data[6])
         image_url = image_url if image_url else current_data[7]
         estado_id = int(data.get("tb_gimnasio_estado_id", current_data[8]))
+        redSocial = data.get("dc_red_social", current_data[9])
 
         if not image and not image_url:
             conn = get_conection()
@@ -373,6 +376,7 @@ def update_gym(gym_id):
                     descripcion,
                     image_url,
                     estado_id,
+                    redSocial
                 ),
             )
             conn.commit()
