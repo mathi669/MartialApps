@@ -879,11 +879,11 @@ def create_class():
 
         # Validar datos requeridos
         required_fields = {
-            "nombre_clase",
-            "horario",
-            "cupos_disponibles",
-            "fecha",
-            "hora",
+            "dc_nombre_clase",
+            "dc_horario",
+            "nb_cupos_disponibles",
+            "df_fecha",
+            "df_hora",
             "imagen",  # Asegúrate de incluir 'imagen' aquí
         }
         missing_fields = required_fields - set(data.keys())
@@ -908,18 +908,18 @@ def create_class():
         cursor.callproc(
             "sp_InsertarClase",
             (
-                data["nombre_clase"],
-                data["horario"],
-                data["cupos_disponibles"],
-                data["categoria_id"],
-                data["fecha"],
-                data["hora"],
-                data["clase_estado_id"],
-                data["gimnasio_id"],
-                data["arte_marcial_id"],
-                data["profesor_id"],
+                data["dc_nombre_clase"],
+                data["dc_horario"],
+                data["nb_cupos_disponibles"],
+                data["id_categoria"],
+                data["df_fecha"],
+                data["df_hora"],
+                data["tb_clase_estado_id"],
+                data["tb_gimnasio_id"],
+                data["tb_arte_marcial_id"],
+                data["tb_profesor_id"],
                 image_url,
-                data["descripcion"],
+                data["dc_descripcion"],
             ),
         )
         conn.commit()
