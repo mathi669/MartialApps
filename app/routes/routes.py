@@ -17,6 +17,8 @@ from flask_jwt_extended import (
 from flask_mail import Mail, Message
 import mysql.connector
 from functools import wraps
+from apscheduler.schedulers.background import BackgroundScheduler
+
 
 routes = Blueprint("routes", __name__)
 mail = Mail()
@@ -27,6 +29,8 @@ jwt = JWTManager()
 
 # Configuración de la API de ImgBB
 IMG_API_KEY = config("IMG_BB_KEY")
+
+scheduler = BackgroundScheduler()
 
 
 # Función para subir imagen a ImgBB
@@ -319,7 +323,7 @@ def create_gym():
 @routes.route("/updateGym/<int:gym_id>", methods=["PUT"])
 def update_gym(gym_id):
     try:
-        data = request.json  # Usar request.json para obtener los datos en lugar de request.form
+        data = request.json
         image = request.files.get("image")
         image_url = data.get("dc_imagen_url")
         
@@ -328,7 +332,6 @@ def update_gym(gym_id):
             cursor.execute("SELECT dc_nombre, dc_correo_electronico, dc_contrasena, dc_telefono, dc_ubicacion, dc_horario, dc_descripcion, dc_imagen_url, tb_gimnasio_estado_id FROM tb_gimnasio WHERE id = %s", (gym_id,))
             current_data = cursor.fetchone()
 
-        #Valores predeterminados para cuando se requiera actualizar 1 dato en especifico
         nombre = data.get("dc_nombre", current_data[0])
         correo = data.get("dc_correo_electronico", current_data[1])
         contrasena = data.get("dc_contrasena", current_data[2])
@@ -339,7 +342,6 @@ def update_gym(gym_id):
         image_url = image_url if image_url else current_data[7]
         estado_id = int(data.get("tb_gimnasio_estado_id", current_data[8]))
 
-        # Obtener la URL de la imagen existente si no se proporciona una nueva imagen ni una URL
         if not image and not image_url:
             conn = get_conection()
             with conn.cursor() as cursor:
@@ -349,14 +351,12 @@ def update_gym(gym_id):
                     image_url = existing_image_url[0]
             conn.close()
 
-        # Si se proporciona una nueva imagen, subirla a ImgBB
         if image:
             response = upload_image_to_imgbb(image)
             if not response.ok:
                 return jsonify({"error": "Failed to upload image"}), 500
             image_url = response.json()["data"]["url"]
 
-        # Conectar a la base de datos y llamar al procedimiento almacenado
         conn = get_conection()
         with conn.cursor() as cursor:
             cursor.callproc(
@@ -369,20 +369,32 @@ def update_gym(gym_id):
                     telefono,
                     ubicacion,
                     horario,
-                    datetime.now(),  # df_fecha_ingreso
+                    datetime.now(),
                     descripcion,
                     image_url,
                     estado_id,
                 ),
             )
             conn.commit()
+
+            # Obtener los correos de los usuarios inscritos
+            cursor.execute("""
+                SELECT u.dc_correo_electronico, u.dc_telefono
+                FROM tb_solicitud_reserva r
+                JOIN tb_usuario u ON r.tb_usuario_id = u.id
+                WHERE r.tb_gimnasio_id = %s
+            """, (gym_id,))
+            usuarios = cursor.fetchall()
+
         conn.close()
 
-        return jsonify({"mensaje": "Gimnasio actualizado correctamente"}), 200
+        for usuario in usuarios:
+            enviar_correo(usuario[0], "Actualización del Gimnasio", "Los detalles del gimnasio han sido actualizados.")
+
+        return jsonify({"mensaje": "Gimnasio actualizado correctamente y notificaciones enviadas"}), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 
 @routes.route("/deleteGym/<int:gym_id>", methods=["DELETE"])
 def delete_gym(gym_id):
@@ -1777,3 +1789,87 @@ def get_favorites(user_id):
         return jsonify({"favorites": favorites}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+        """Programacion de recordatorios y demas"""
+
+def send_reminder():
+    conn = mysql.connector.connect(user='tu_usuario', password='tu_contraseña', host='localhost', database='tu_base_de_datos')
+    cursor = conn.cursor()
+
+    # Selecciona las reservas para mañana y obtén el correo del usuario
+    query = """
+        SELECT u.dc_correo_electronico
+        FROM tb_solicitud_reserva r
+        JOIN tb_usuario u ON r.tb_usuario_id = u.id
+        WHERE r.df_fecha = %s
+    """
+    cursor.execute(query, (datetime.now().date() + timedelta(days=1),))
+
+    for (dc_correo_electronico,) in cursor:
+        enviar_correo(dc_correo_electronico, "Recordatorio de Reserva", "Tienes una reserva para mañana.")
+
+    cursor.close()
+    conn.close()
+
+# Programa la tarea de recordatorio para que se ejecute diariamente
+scheduler.add_job(send_reminder, 'interval', days=1)
+scheduler.start()
+
+
+
+def send_scheduled_reminder(app, data):
+    with app.app_context():
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT dc_correo_electronico, dc_telefono FROM tb_usuario WHERE id = %s", (data['id_usuario'],))
+            usuario = cursor.fetchone()
+        conn.close()
+        
+        email_body = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6;">
+                <div style="max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+                    <h2 style="text-align: center; color: #007BFF;">Recordatorio de Entrenamiento</h2>
+                    <p>Hola,</p>
+                    <p>Este es un recordatorio para tu próxima sesión de entrenamiento.</p>
+                    <p><strong>Fecha:</strong> {data['fecha']}</p>
+                    <p><strong>Hora:</strong> {data['hora']}</p>
+                    <p><strong>Mensaje:</strong> {data['mensaje']}</p>
+                    <p>Esperamos que disfrutes de tu entrenamiento y logres todos tus objetivos.</p>
+                    <p>Gracias por confiar en nosotros.</p>
+                    <div style="text-align: center; margin-top: 20px;">
+                        <img src="https://i.ibb.co/Wfv1md5/martiallogo.jpg" alt="MartialApps" style="width: 150px;">
+                    </div>
+                    <p style="text-align: center; margin-top: 20px; font-size: 0.9em; color: #555;">
+                        &copy; {datetime.now().year} MartialApps. Todos los derechos reservados.
+                    </p>
+                </div>
+            </body>
+        </html>
+        """
+        
+        enviar_correo(usuario[0], "Recordatorio de Entrenamiento", email_body)
+        # enviar_whatsapp(usuario[1], data['mensaje'])
+
+@routes.route('/schedule_reminder', methods=['POST'])
+def schedule_reminder():
+    data = request.json
+    conn = get_conection()
+    with conn.cursor() as cursor:
+        cursor.callproc("sp_ProgramarRecordatorio", (
+            data['id_usuario'], 
+            data['fecha'], 
+            data['hora'], 
+            data['mensaje']
+        ))
+        conn.commit()
+
+    conn.close()
+
+    # Obtener la instancia de la aplicación actual
+    app = current_app._get_current_object()
+
+    reminder_time = datetime.strptime(data['fecha'] + ' ' + data['hora'], '%Y-%m-%d %H:%M:%S')
+    scheduler.add_job(send_scheduled_reminder, 'date', run_date=reminder_time, args=[app, data])
+
+    return "Recordatorio programado", 200
