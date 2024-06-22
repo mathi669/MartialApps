@@ -224,16 +224,12 @@ def login():
         if request.method == "POST":
             user_type = request.json.get("user_type")
             email = request.json.get("dc_correo_electronico")
-            print("Aquí está el correo: ", email)
             password = request.json.get("dc_contrasena")
             user_data = {"dc_correo_electronico": email, "dc_contrasena": password}
-            print(f"Autenticando tipo de usuario: {user_type}")
 
             auth_response = AuthService.login_user(user_type, user_data)
-            print("Respuesta de autenticación:", auth_response)
 
             if auth_response["success"]:
-                print("Autenticación exitosa.")
                 encoded_token = Security.generate_token(auth_response["user"])
                 response = {
                     "success": True,
@@ -243,13 +239,10 @@ def login():
                 }
                 return jsonify(response)
             else:
-                print("Error de autenticación: Usuario o contraseña incorrectos.")
-                return jsonify(
-                    {
-                        "success": False,
-                        "message": "Usuario o contraseña incorrectos",
-                    }
-                )
+                return jsonify({
+                    "success": False,
+                    "message": auth_response["message"]
+                })
         else:
             return jsonify({"message": "Método no permitido"}), 405
     except Exception as e:
@@ -1794,7 +1787,7 @@ def get_favorites(user_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-        """Programacion de recordatorios y demas"""
+"""Programacion de recordatorios y demas"""
 
 def send_reminder():
     conn = mysql.connector.connect(user='tu_usuario', password='tu_contraseña', host='localhost', database='tu_base_de_datos')
@@ -1877,3 +1870,95 @@ def schedule_reminder():
     scheduler.add_job(send_scheduled_reminder, 'date', run_date=reminder_time, args=[app, data])
 
     return "Recordatorio programado", 200
+
+
+"""Publciaciones de gimnasios"""
+
+@routes.route('/gym/post', methods=['POST'])
+def create_gym_post():
+    data = request.json
+    try:
+        # Verificar si todos los campos requeridos están presentes y no son nulos
+        required_fields = {
+            "id_gimnasio",
+            "dc_imagen_base64",
+            "dc_descripcion"
+        }
+        missing_fields = required_fields - set(data.keys())
+        if missing_fields:
+            return (
+                jsonify(
+                    {
+                        "error": f'Faltan los siguientes campos: {", ".join(missing_fields)}'
+                    }
+                ),
+                400,
+            )
+
+        # Extraer datos del cuerpo de la solicitud
+        id_gimnasio = data.get("id_gimnasio")
+        dc_descripcion = data.get("dc_descripcion")
+        dc_imagen_base64 = data.get("dc_imagen_base64")
+
+        # Llamar al método para subir la imagen a ImgBB
+        response = upload_image_to_imgbb(dc_imagen_base64)
+        if response.status_code != 200:
+            return jsonify({"error": "Error al cargar la imagen"}), 500
+        
+        image_url = response.json()["data"]["url"]
+
+        # Llamar al stored procedure para registrar la publicación del gimnasio
+        conn = get_conection()
+        cursor = conn.cursor()
+
+        query = """
+            INSERT INTO tb_gimnasio_post (id_gimnasio, dc_imagen_url, dc_descripcion, fecha)
+            VALUES (%s, %s, %s, %s)
+        """
+        cursor.execute(query, (
+            id_gimnasio,
+            image_url,
+            dc_descripcion,
+            datetime.now()
+        ))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify(message='Publicación creada exitosamente'), 201
+    except Exception as e:
+        return jsonify(error=str(e)), 500
+
+
+@routes.route('/gym/<int:gym_id>/posts', methods=['GET'])
+def get_gym_posts(gym_id):
+    try:
+        conn = get_conection()
+        cursor = conn.cursor()
+
+        query = """
+            SELECT id, id_gimnasio, dc_imagen_url, dc_descripcion, fecha
+            FROM tb_gimnasio_post
+            WHERE id_gimnasio = %s
+            ORDER BY fecha DESC
+        """
+        cursor.execute(query, (gym_id,))
+        
+        posts = cursor.fetchall()
+        serialized_posts = []
+        for post in posts:
+            serialized_posts.append({
+                'id': post[0],
+                'id_gimnasio': post[1],
+                'dc_imagen_url': post[2],
+                'dc_descripcion': post[3],
+                'fecha': post[4].isoformat()
+            })
+
+        cursor.close()
+        conn.close()
+
+        return jsonify(posts=serialized_posts), 200
+    except Exception as e:
+        return jsonify(error=str(e)), 500
