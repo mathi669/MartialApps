@@ -1524,6 +1524,17 @@ def recommend_gym():
             return jsonify({"error": "Missing gymId or userId"}), 400
 
         conn = get_conection()
+        
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*) FROM tb_recommendations WHERE usuario_id = %s AND gimnasio_id = %s",
+                (user_id, gym_id)
+            )
+            recommendation_exists = cursor.fetchone()[0] > 0
+        
+        if recommendation_exists:
+            return jsonify({"message": "Ya has recomendado este gimnasio", "alreadyRecommended": True}), 200
+        
         with conn.cursor() as cursor:
             cursor.execute(
                 "INSERT INTO tb_recommendations (usuario_id, gimnasio_id, fecha_recomendacion) VALUES (%s, %s, %s)",
