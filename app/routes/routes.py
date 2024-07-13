@@ -70,6 +70,7 @@ def upload_image_to_imgbb(base64_image):
     response = requests.post(url, data=payload)
     return response
 
+
 @routes.route("/registerGym", methods=["POST"])
 def register_gym():
     try:
@@ -110,6 +111,17 @@ def register_gym():
         horario = data.get("horario") 
         red_social = data.get("redSocial")
 
+        # Verificar si el correo ya existe en la tabla tb_gimnasio
+        conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*) FROM tb_gimnasio WHERE dc_correo_electronico = %s", 
+                (correo,)
+            )
+            count = cursor.fetchone()[0]
+            if count > 0:
+                return jsonify({"error": "El correo electrónico ya está registrado como gimnasio"}), 400
+
         # Llamar al método para subir la imagen a ImgBB
         response = upload_image_to_imgbb(imagen_base64)
         if response.status_code != 200:
@@ -118,7 +130,6 @@ def register_gym():
         image_url = response.json()["data"]["url"]
 
         # Llamar al stored procedure para registrar el gimnasio
-        conn = get_conection()
         with conn.cursor() as cursor:
             # Obtener el último ID de la tabla tb_gimnasio
             cursor.execute("SELECT MAX(id) FROM tb_gimnasio")
@@ -150,7 +161,7 @@ def register_gym():
         print(f"Error en register_gym: {e}")
         # Devolver error en caso de excepción
         return jsonify({"error": str(e)}), 500
-    
+
 @routes.route("/register", methods=["POST"])
 def register_user():
     try:
@@ -189,8 +200,18 @@ def register_user():
                 400,
             )
 
-        # Llamar al stored procedure para registrar el usuario
+        # Verificar si el correo ya existe en la tabla tb_usuario
         conn = get_conection()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*) FROM tb_usuario WHERE dc_correo_electronico = %s", 
+                (correo,)
+            )
+            count = cursor.fetchone()[0]
+            if count > 0:
+                return jsonify({"error": "El correo electrónico ya está registrado como usuario"}), 400
+
+        # Llamar al stored procedure para registrar el usuario
         with conn.cursor() as cursor:
             cursor.callproc(
                 "sp_InsertarUsuario",
@@ -319,39 +340,54 @@ def create_gym():
 def update_gym(gym_id):
     try:
         data = request.json
-        image = request.files.get("image")
-        image_url = data.get("dc_imagen_url")
-        
+        image_base64 = data.get("dc_imagen_base64")
+
+        # Eliminar el prefijo "data:image/jpeg;base64," si está presente
+        if image_base64 and image_base64.startswith("data:image/"):
+            image_base64 = image_base64.split(",", 1)[1]
+
         conn = get_conection()
         with conn.cursor() as cursor:
-            cursor.execute("SELECT dc_nombre, dc_correo_electronico, dc_contrasena, dc_telefono, dc_ubicacion, dc_horario, dc_descripcion, dc_imagen_url, tb_gimnasio_estado_id, dc_red_social FROM tb_gimnasio WHERE id = %s", (gym_id,))
+            cursor.execute("""
+                SELECT 
+                    id, 
+                    dc_nombre, 
+                    dc_correo_electronico, 
+                    dc_contrasena, 
+                    dc_telefono, 
+                    dc_ubicacion, 
+                    dc_horario, 
+                    df_fecha_ingreso, 
+                    dc_descripcion, 
+                    dc_imagen_url, 
+                    tb_gimnasio_estado_id, 
+                    dc_red_social 
+                FROM tb_gimnasio 
+                WHERE id = %s
+            """, (gym_id,))
             current_data = cursor.fetchone()
 
-        nombre = data.get("dc_nombre", current_data[0])
-        correo = data.get("dc_correo_electronico", current_data[1])
-        contrasena = data.get("dc_contrasena", current_data[2])
-        telefono = data.get("dc_telefono", current_data[3])
-        ubicacion = data.get("dc_ubicacion", current_data[4])
-        horario = data.get("dc_horario", current_data[5])
-        descripcion = data.get("dc_descripcion", current_data[6])
-        image_url = image_url if image_url else current_data[7]
-        estado_id = int(data.get("tb_gimnasio_estado_id", current_data[8]))
-        redSocial = data.get("dc_red_social", current_data[9])
+        if not current_data:
+            return jsonify({"error": "Gimnasio no encontrado"}), 404
 
-        if not image and not image_url:
-            conn = get_conection()
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT dc_imagen_url FROM tb_gimnasio WHERE id = %s", (gym_id,))
-                existing_image_url = cursor.fetchone()
-                if existing_image_url:
-                    image_url = existing_image_url[0]
-            conn.close()
-
-        if image:
-            response = upload_image_to_imgbb(image)
-            if not response.ok:
-                return jsonify({"error": "Failed to upload image"}), 500
+        nombre = data.get("dc_nombre", current_data[1])
+        correo = data.get("dc_correo_electronico", current_data[2])
+        contrasena = data.get("dc_contrasena", current_data[3])
+        telefono = data.get("dc_telefono", current_data[4])
+        ubicacion = data.get("dc_ubicacion", current_data[5])
+        horario = data.get("dc_horario", current_data[6])
+        descripcion = data.get("dc_descripcion", current_data[8])
+        estado_id = int(data.get("tb_gimnasio_estado_id", current_data[10]))
+        redSocial = data.get("dc_red_social", current_data[11])
+        
+        # Manejar la imagen base64
+        if image_base64:
+            response = upload_image_to_imgbb(image_base64)
+            if response.status_code != 200:
+                return jsonify({"error": "Error al cargar la imagen"}), 500
             image_url = response.json()["data"]["url"]
+        else:
+            image_url = current_data[9]
 
         conn = get_conection()
         with conn.cursor() as cursor:
@@ -374,6 +410,26 @@ def update_gym(gym_id):
             )
             conn.commit()
 
+            # Obtener los datos actualizados del gimnasio
+            cursor.execute("""
+                SELECT 
+                    id, 
+                    dc_nombre, 
+                    dc_correo_electronico, 
+                    dc_contrasena, 
+                    dc_telefono, 
+                    dc_ubicacion, 
+                    dc_horario, 
+                    df_fecha_ingreso, 
+                    dc_descripcion, 
+                    dc_imagen_url, 
+                    tb_gimnasio_estado_id, 
+                    dc_red_social 
+                FROM tb_gimnasio 
+                WHERE id = %s
+            """, (gym_id,))
+            updated_gym_data = cursor.fetchone()
+
             # Obtener los correos de los usuarios inscritos
             cursor.execute("""
                 SELECT u.dc_correo_electronico, u.dc_telefono
@@ -388,11 +444,29 @@ def update_gym(gym_id):
         for usuario in usuarios:
             enviar_correo(usuario[0], "Actualización del Gimnasio", "Los detalles del gimnasio han sido actualizados.")
 
-        return jsonify({"mensaje": "Gimnasio actualizado correctamente y notificaciones enviadas"}), 200
+        # Convertir los datos actualizados del gimnasio a un diccionario para incluir en la respuesta JSON
+        gym_data_dict = {
+            "id": updated_gym_data[0],
+            "dc_nombre": updated_gym_data[1],
+            "dc_correo_electronico": updated_gym_data[2],
+            "dc_contrasena": updated_gym_data[3],
+            "dc_telefono": updated_gym_data[4],
+            "dc_ubicacion": updated_gym_data[5],
+            "dc_horario": updated_gym_data[6],
+            "df_fecha_ingreso": updated_gym_data[7],
+            "dc_descripcion": updated_gym_data[8],
+            "dc_imagen_url": updated_gym_data[9],
+            "tb_gimnasio_estado_id": updated_gym_data[10],
+            "dc_red_social": updated_gym_data[11]
+        }
+
+        return jsonify({
+            "mensaje": "Gimnasio actualizado correctamente y notificaciones enviadas",
+            "gimnasio": gym_data_dict
+        }), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 @routes.route("/deleteGym/<int:gym_id>", methods=["DELETE"])
 def delete_gym(gym_id):
     try:
@@ -1391,7 +1465,7 @@ def handle_gym_comments(gym_id):
                 )
                 result = cursor.fetchall()
             conn.close()
-            comments = [{"comment": row[0], "rating": row[1], "date": row[2], "user": row[3]} for row in result]
+            comments = [{"comment": row[0], "rating": row[1], "date": row[2].strftime("%Y-%m-%d %H:%M:%S"), "user": row[3]} for row in result]
             return jsonify({"comments": comments}), 200
         except Exception as e:
             return jsonify({"error": str(e)}), 500
